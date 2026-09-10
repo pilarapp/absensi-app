@@ -19,7 +19,7 @@ COPY . .
 # Environment variables must be present at build time
 # https://nextjs.org/docs/api-reference/next.config.js/environment-variables
 # You can pass them as build args if needed.
-RUN npm run build
+RUN BUILD_STANDALONE=true npm run build
 
 # Production image, copy all the files and run next
 FROM base AS runner
