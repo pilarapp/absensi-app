@@ -53,6 +53,7 @@ body {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   font-family: var(--font-jakarta), sans-serif;
 }
@@ -62,6 +63,7 @@ body {
   width: 100%;
   max-width: 400px;
   height: 100vh;
+  height: 100dvh;
   max-height: 850px;
   background-color: var(--color-pilar-dark);
   position: relative;
