@@ -792,7 +792,7 @@ export default function AdminDesktopPage() {
               </button>
             </div>
             
-            <form onSubmit={(e) => { e.preventDefault(); handleSaveKaryawan(); }} className="flex flex-col flex-1 overflow-hidden">
+            <form autoComplete="off" onSubmit={(e) => { e.preventDefault(); handleSaveKaryawan(); }} className="flex flex-col flex-1 overflow-hidden">
               <div className="p-8 overflow-y-auto space-y-8 flex-1 bg-white">
                 
                 {/* 1. Data Pribadi & Kontak */}
@@ -832,14 +832,14 @@ export default function AdminDesktopPage() {
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Email Akses</label>
                       <input 
-                        type="email" required value={formEmail} onChange={(e) => setFormEmail(e.target.value)}
+                        type="email" required value={formEmail} onChange={(e) => setFormEmail(e.target.value)} autoComplete="off"
                         className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white"
                       />
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Kata Sandi (Password)</label>
                       <input 
-                        type="password" value={formPassword} onChange={(e) => setFormPassword(e.target.value)}
+                        type="password" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} autoComplete="new-password"
                         placeholder={editingKaryawan ? "Ketik untuk mengubah sandi" : "Minimal 6 karakter"}
                         className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white"
                       />
