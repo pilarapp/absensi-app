@@ -56,97 +56,22 @@ export default function EmployeeDashboard() {
   useEffect(() => {
     let timer: NodeJS.Timeout;
     const startTime = Date.now();
-    
-    // Jika sesi sudah pernah diperiksa di sesi ini (misal saat klik tab Beranda), durasi loading 0 detik (instan)
-    const isAlreadyChecked = typeof window !== 'undefined' && sessionStorage.getItem("pilar_session_checked") === "true";
-    const MIN_LOADING_TIME = isAlreadyChecked ? 0 : 1000;
 
-    const finishLoading = (action: () => void) => {
-      const elapsed = Date.now() - startTime;
-      const remaining = Math.max(0, MIN_LOADING_TIME - elapsed);
-      if (remaining === 0) {
-        action();
-      } else {
-        setTimeout(action, remaining);
-      }
+    const fetchServerAtt = async (empId: string, todayDate: string) => {
+       const existingAtt: any = await getTodayAttendance(empId);
+       if (existingAtt) {
+          setTimeCheckin(existingAtt.jamMasuk || "--:--");
+          if (existingAtt.jamMasuk) setHasCheckedIn(true);
+          if (existingAtt.jamKeluar) setTimeCheckout(existingAtt.jamKeluar);
+          localStorage.setItem("pilar_today_attendance", JSON.stringify({
+             date: todayDate,
+             timeCheckin: existingAtt.jamMasuk || "--:--",
+             timeCheckout: existingAtt.jamKeluar || null,
+             docId: existingAtt.id
+          }));
+       }
     };
-    
-    // Cek awal sesi lokal dengan animasi pemeriksaan sesi
-    const hasLocalSession = typeof window !== 'undefined' && (localStorage.getItem("user_email") || localStorage.getItem("pilar_logged_in"));
-    if (!hasLocalSession) {
-      if (typeof window !== 'undefined') {
-        sessionStorage.removeItem("pilar_session_checked");
-        sessionStorage.removeItem("pilar_cached_employee");
-      }
-      finishLoading(() => router.replace('/login'));
-      return;
-    }
 
-    // Jika sudah ada cache pengguna saat berpindah tab, langsung inisialisasi data absen tanpa tunggu
-    if (isAlreadyChecked && currentUser?.id) {
-      init(currentUser.id);
-    }
-
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const emp = await getEmployee(user.uid);
-        if (emp) {
-          try {
-            sessionStorage.setItem("pilar_session_checked", "true");
-            sessionStorage.setItem("pilar_cached_employee", JSON.stringify(emp));
-          } catch {}
-          finishLoading(() => {
-            setCurrentUser(emp);
-            setIsAuthChecking(false);
-            init(emp.id);
-          });
-        } else {
-          sessionStorage.removeItem("pilar_session_checked");
-          sessionStorage.removeItem("pilar_cached_employee");
-          finishLoading(() => router.replace('/login'));
-        }
-      } else {
-        localStorage.removeItem("pilar_logged_in");
-        localStorage.removeItem("user_email");
-        sessionStorage.removeItem("pilar_session_checked");
-        sessionStorage.removeItem("pilar_cached_employee");
-        finishLoading(() => router.replace('/login'));
-      }
-    });
-
-    timer = setInterval(() => {
-      const now = new Date();
-      setCurrentTime(now.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }));
-      setCurrentDate(now.toLocaleDateString("id-ID", { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
-    }, 1000);
-
-    const init = async (empId: string) => {
-      try {
-        const savedAtt = localStorage.getItem("pilar_today_attendance");
-        const todayDate = new Date().toLocaleDateString("id-ID");
-        if (savedAtt) {
-          const parsed = JSON.parse(savedAtt);
-          if (parsed.date === todayDate) {
-             setTimeCheckin(parsed.timeCheckin || "--:--");
-             if (parsed.timeCheckin) setHasCheckedIn(true);
-             if (parsed.timeCheckout) setTimeCheckout(parsed.timeCheckout);
-          } else {
-             localStorage.removeItem("pilar_today_attendance");
-             // Fetch fallback from server if not in localStorage today
-             await fetchServerAtt(empId, todayDate);
-          }
-        } else {
-           await fetchServerAtt(empId, todayDate);
-        }
-        
-        await fetchHistoryData(empId);
-      } catch (e) {
-        console.error("Error init attendance:", e);
-      }
-      setIsInitializingAttendance(false);
-      setLocationText("");
-    };
-    
     const fetchHistoryData = async (empId: string) => {
       const attendances = await getEmployeeAttendance(empId);
       const requests = await getEmployeeRequests(empId);
@@ -211,20 +136,95 @@ export default function EmployeeDashboard() {
       setRecentHistory(combinedHistory.slice(0, 5));
     };
 
-    const fetchServerAtt = async (empId: string, todayDate: string) => {
-       const existingAtt: any = await getTodayAttendance(empId);
-       if (existingAtt) {
-          setTimeCheckin(existingAtt.jamMasuk || "--:--");
-          if (existingAtt.jamMasuk) setHasCheckedIn(true);
-          if (existingAtt.jamKeluar) setTimeCheckout(existingAtt.jamKeluar);
-          localStorage.setItem("pilar_today_attendance", JSON.stringify({
-             date: todayDate,
-             timeCheckin: existingAtt.jamMasuk || "--:--",
-             timeCheckout: existingAtt.jamKeluar || null,
-             docId: existingAtt.id
-          }));
-       }
+    const init = async (empId: string) => {
+      try {
+        const savedAtt = localStorage.getItem("pilar_today_attendance");
+        const todayDate = new Date().toLocaleDateString("id-ID");
+        if (savedAtt) {
+          const parsed = JSON.parse(savedAtt);
+          if (parsed.date === todayDate) {
+             setTimeCheckin(parsed.timeCheckin || "--:--");
+             if (parsed.timeCheckin) setHasCheckedIn(true);
+             if (parsed.timeCheckout) setTimeCheckout(parsed.timeCheckout);
+          } else {
+             localStorage.removeItem("pilar_today_attendance");
+             // Fetch fallback from server if not in localStorage today
+             await fetchServerAtt(empId, todayDate);
+          }
+        } else {
+           await fetchServerAtt(empId, todayDate);
+        }
+        
+        await fetchHistoryData(empId);
+      } catch (e) {
+        console.error("Error init attendance:", e);
+      }
+      setIsInitializingAttendance(false);
+      setLocationText("");
     };
+    
+    // Jika sesi sudah pernah diperiksa di sesi ini (misal saat klik tab Beranda), durasi loading 0 detik (instan)
+    const isAlreadyChecked = typeof window !== 'undefined' && sessionStorage.getItem("pilar_session_checked") === "true";
+    const MIN_LOADING_TIME = isAlreadyChecked ? 0 : 1000;
+
+    const finishLoading = (action: () => void) => {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, MIN_LOADING_TIME - elapsed);
+      if (remaining === 0) {
+        action();
+      } else {
+        setTimeout(action, remaining);
+      }
+    };
+    
+    // Cek awal sesi lokal dengan animasi pemeriksaan sesi
+    const hasLocalSession = typeof window !== 'undefined' && (localStorage.getItem("user_email") || localStorage.getItem("pilar_logged_in"));
+    if (!hasLocalSession) {
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem("pilar_session_checked");
+        sessionStorage.removeItem("pilar_cached_employee");
+      }
+      finishLoading(() => router.replace('/login'));
+      return;
+    }
+
+    // Jika sudah ada cache pengguna saat berpindah tab, langsung inisialisasi data absen tanpa tunggu
+    if (isAlreadyChecked && currentUser?.id) {
+      init(currentUser.id);
+    }
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const emp = await getEmployee(user.uid);
+        if (emp) {
+          try {
+            sessionStorage.setItem("pilar_session_checked", "true");
+            sessionStorage.setItem("pilar_cached_employee", JSON.stringify(emp));
+          } catch {}
+          finishLoading(() => {
+            setCurrentUser(emp);
+            setIsAuthChecking(false);
+            init(emp.id);
+          });
+        } else {
+          sessionStorage.removeItem("pilar_session_checked");
+          sessionStorage.removeItem("pilar_cached_employee");
+          finishLoading(() => router.replace('/login'));
+        }
+      } else {
+        localStorage.removeItem("pilar_logged_in");
+        localStorage.removeItem("user_email");
+        sessionStorage.removeItem("pilar_session_checked");
+        sessionStorage.removeItem("pilar_cached_employee");
+        finishLoading(() => router.replace('/login'));
+      }
+    });
+
+    timer = setInterval(() => {
+      const now = new Date();
+      setCurrentTime(now.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }));
+      setCurrentDate(now.toLocaleDateString("id-ID", { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+    }, 1000);
 
     return () => {
       if (timer) clearInterval(timer);
