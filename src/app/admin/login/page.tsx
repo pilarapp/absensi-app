@@ -179,8 +179,16 @@ export default function AdminLoginPage() {
         {/* Right Side: Image */}
         <div className="hidden md:block w-full md:w-1/2 p-2 relative z-10 group overflow-hidden">
             <div className="w-full h-full min-h-[450px] rounded-xl overflow-hidden relative">
-                {/* Beautiful Image */}
-                <img src="https://res-console.cloudinary.com/sgcxykbd/thumbnails/v1/image/upload/v1788738455/TG9nb19Db3Zlcg==/drilldown" alt="Illustration" className="absolute inset-0 w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105" />
+                {/* Beautiful Cover Image */}
+                <img 
+                  src="/cover-login.jpg" 
+                  alt="PT. Pilar Sentra Solusi" 
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = "https://res.cloudinary.com/sgcxykbd/image/upload/f_auto,q_auto/v1788738455/Logo_Cover.jpg";
+                  }}
+                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105" 
+                />
                 
                 {/* Soft gradient overlay for better blending */}
                 <div className="absolute inset-0 bg-gradient-to-tr from-pilar-darker/20 to-transparent pointer-events-none z-10"></div>
