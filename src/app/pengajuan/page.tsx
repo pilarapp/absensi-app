@@ -24,6 +24,7 @@ export default function PengajuanPage() {
   const [delegationNik, setDelegationNik] = useState("");
 
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [existingFiles, setExistingFiles] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -138,6 +139,7 @@ export default function PengajuanPage() {
   useEffect(() => {
     if (!needsAttachment) {
       setAttachments([]);
+      setExistingFiles([]);
     }
   }, [needsAttachment]);
 
@@ -212,6 +214,7 @@ export default function PengajuanPage() {
       }
       
       if (editId) {
+        const finalFiles = [...existingFiles, ...uploadedFilesData];
         // Update existing pengajuan in Firestore
         const updateData = {
           type,
@@ -223,7 +226,7 @@ export default function PengajuanPage() {
           delegationName,
           delegationId,
           delegationRole,
-          ...(uploadedFilesData.length > 0 && { files: uploadedFilesData }),
+          files: finalFiles,
           status: "Menunggu",
           isRevision: true
         };
@@ -281,6 +284,7 @@ export default function PengajuanPage() {
       setDelegationId("");
       setDelegationRole("");
       setAttachments([]);
+      setExistingFiles([]);
       setIsFormOpen(false);
       
     } catch (error: any) {
@@ -549,18 +553,33 @@ export default function PengajuanPage() {
                   onChange={handleFileChange}
                   accept="image/*,.pdf,.doc,.docx"
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  disabled={attachments.length >= 5}
+                  disabled={(attachments.length + existingFiles.length) >= 5}
                 />
                 <div className="flex flex-col items-center justify-center space-y-2 pointer-events-none py-2">
-                  <i className={`fa-solid ${attachments.length > 0 ? 'fa-file-circle-check text-green-400' : 'fa-cloud-arrow-up text-pilar-textSecondary'} text-2xl`}></i>
-                  <span className={`text-center font-medium ${attachments.length > 0 ? 'text-white' : 'text-pilar-textSecondary'}`}>
-                    {attachments.length > 0 ? `${attachments.length} file dilampirkan` : "Ketuk untuk melampirkan dokumen persetujuan/surat dokter"}
+                  <i className={`fa-solid ${(attachments.length + existingFiles.length) > 0 ? 'fa-file-circle-check text-green-400' : 'fa-cloud-arrow-up text-pilar-textSecondary'} text-2xl`}></i>
+                  <span className={`text-center font-medium ${(attachments.length + existingFiles.length) > 0 ? 'text-white' : 'text-pilar-textSecondary'}`}>
+                    {(attachments.length + existingFiles.length) > 0 ? `${attachments.length + existingFiles.length} file dilampirkan` : "Ketuk untuk melampirkan dokumen persetujuan/surat dokter"}
                   </span>
                 </div>
               </div>
               
-              {attachments.length > 0 && (
+              {(attachments.length > 0 || existingFiles.length > 0) && (
                 <div className="mt-3 space-y-2">
+                  {existingFiles.map((file, idx) => (
+                    <div key={`existing-${idx}`} className="flex justify-between items-center bg-white/5 px-3 py-2 rounded-lg border border-white/10">
+                      <div className="flex items-center space-x-2 truncate w-4/5">
+                        <i className="fa-solid fa-file-lines text-pilar-gold text-xs"></i>
+                        <span className="text-xs text-gray-300 truncate">{file.name || 'Dokumen Tersimpan'}</span>
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={() => setExistingFiles(prev => prev.filter((_, i) => i !== idx))}
+                        className="text-red-400 hover:text-red-300 ml-2 w-6 h-6 flex items-center justify-center rounded-full bg-red-400/10"
+                      >
+                        <i className="fa-solid fa-xmark text-xs"></i>
+                      </button>
+                    </div>
+                  ))}
                   {attachments.map((file, idx) => (
                     <div key={idx} className="flex justify-between items-center bg-white/5 px-3 py-2 rounded-lg border border-white/10">
                       <div className="flex items-center space-x-2 truncate w-4/5">
@@ -658,6 +677,7 @@ export default function PengajuanPage() {
                           setDelegationName(item.delegationName || "");
                           setDelegationId(item.delegationId || "");
                           setDelegationRole(item.delegationRole || "");
+                          setExistingFiles(item.files || []);
                           setIsFormOpen(true);
                           window.scrollTo(0,0);
                         }}
