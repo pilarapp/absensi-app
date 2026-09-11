@@ -125,6 +125,7 @@ export default function AdminDesktopPage() {
   const [formGajiPokok, setFormGajiPokok] = useState("0");
   const [formBpjsTk, setFormBpjsTk] = useState(true);
   const [formBpjsKes, setFormBpjsKes] = useState(true);
+  const [isSavingKaryawan, setIsSavingKaryawan] = useState(false);
   
   // Laporan & Keuangan & Payroll State
   const [riwayatLaporan, setRiwayatLaporan] = useState<any[]>([]);
@@ -533,39 +534,52 @@ export default function AdminDesktopPage() {
   const handleSaveKaryawan = async () => {
     if (!formNama || !formEmail || !formPosisi) return showToast("Semua field wajib diisi.");
     if (!editingKaryawan && !formPassword) return showToast("Password wajib diisi untuk karyawan baru.");
+    if (!editingKaryawan && formPassword.length < 6) return showToast("Kata sandi minimal harus 6 karakter.");
+    if (editingKaryawan && formPassword && formPassword !== "••••••••" && formPassword.length < 6) {
+      return showToast("Kata sandi minimal harus 6 karakter.");
+    }
 
+    setIsSavingKaryawan(true);
     try {
       const res = await fetch('/api/auth/karyawan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: editingKaryawan?.id,
-          noInduk: formNoInduk,
-          noWa: formNoWa,
+          noInduk: formNoInduk || "",
+          noWa: formNoWa || "",
           nama: formNama,
           email: formEmail,
           password: formPassword === "••••••••" ? "" : formPassword,
           posisi: formPosisi,
-          status: formStatus,
-          lokasiId: formLokasiId,
-          shiftMasuk: formShiftMasuk,
-          shiftKeluar: formShiftKeluar,
+          status: formStatus || "Aktif",
+          lokasiId: formLokasiId || "all",
+          shiftMasuk: formShiftMasuk || "08:00",
+          shiftKeluar: formShiftKeluar || "17:00",
           gajiPokok: parseInt(formGajiPokok) || 0,
           bpjsTk: formBpjsTk,
           bpjsKes: formBpjsKes
         })
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch (e) {
+        console.error("Gagal parse JSON response:", e);
+      }
 
-      if (res.ok) {
+      if (res.ok && data?.success) {
         showToast(editingKaryawan ? "Data karyawan berhasil diperbarui!" : "Karyawan baru berhasil ditambahkan!");
         setIsModalOpen(false);
       } else {
-        showToast("Gagal menyimpan: " + (data.error || 'Unknown error'));
+        showToast(data?.error || `Gagal menyimpan: Terjadi kesalahan (Status ${res.status})`);
       }
-    } catch (error) {
-      showToast("Terjadi kesalahan sistem saat menyimpan data.");
+    } catch (error: any) {
+      console.error("Error saving karyawan:", error);
+      showToast(error?.message ? `Gagal menyimpan: ${error.message}` : "Terjadi kesalahan sistem saat menyimpan data.");
+    } finally {
+      setIsSavingKaryawan(false);
     }
   };
 
@@ -771,7 +785,17 @@ export default function AdminDesktopPage() {
       {toastMessage && (
         <div className="fixed top-4 right-4 z-[9999] pointer-events-auto min-w-[320px]">
           <Toast 
-            type={toastMessage.toLowerCase().includes("gagal") || toastMessage.toLowerCase().includes("harus diisi") || toastMessage.toLowerCase().includes("tidak valid") || toastMessage.toLowerCase().includes("wajib") ? "error" : "success"}
+            type={
+              toastMessage.toLowerCase().includes("gagal") || 
+              toastMessage.toLowerCase().includes("harus") || 
+              toastMessage.toLowerCase().includes("tidak valid") || 
+              toastMessage.toLowerCase().includes("wajib") ||
+              toastMessage.toLowerCase().includes("sudah") ||
+              toastMessage.toLowerCase().includes("kesalahan") ||
+              toastMessage.toLowerCase().includes("minimal")
+                ? "error" 
+                : "success"
+            }
             description={toastMessage} 
             onClose={() => setToastMessage("")} 
           />
@@ -840,6 +864,7 @@ export default function AdminDesktopPage() {
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Kata Sandi (Password)</label>
                       <input 
                         type="password" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} autoComplete="new-password"
+                        minLength={6}
                         placeholder={editingKaryawan ? "Ketik untuk mengubah sandi" : "Minimal 6 karakter"}
                         className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white"
                       />
@@ -980,9 +1005,22 @@ export default function AdminDesktopPage() {
               {/* Modal Footer */}
               <div className="px-8 py-5 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3 shrink-0">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-200 rounded-xl transition-colors">Batal</button>
-                <button type="submit" className="bg-pilar-darker text-pilar-gold font-bold px-8 py-3 rounded-xl shadow-md hover:bg-black hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20 transition-all flex items-center space-x-2">
-                  <i className="fa-solid fa-save"></i>
-                  <span>Simpan</span>
+                <button 
+                  type="submit" 
+                  disabled={isSavingKaryawan}
+                  className={`bg-pilar-darker text-pilar-gold font-bold px-8 py-3 rounded-xl shadow-md hover:bg-black hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20 transition-all flex items-center space-x-2 ${isSavingKaryawan ? 'opacity-70 cursor-not-allowed' : ''}`}
+                >
+                  {isSavingKaryawan ? (
+                    <>
+                      <i className="fa-solid fa-circle-notch fa-spin"></i>
+                      <span>Menyimpan...</span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-save"></i>
+                      <span>Simpan</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
