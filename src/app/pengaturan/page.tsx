@@ -284,6 +284,8 @@ export default function PengaturanPage() {
       localStorage.removeItem("user_email");
       localStorage.removeItem("pilar_logged_in");
       localStorage.removeItem("pilar_today_attendance");
+      sessionStorage.removeItem("pilar_session_checked");
+      sessionStorage.removeItem("pilar_cached_employee");
     } catch (e) {
       console.error("Gagal logout:", e);
     }

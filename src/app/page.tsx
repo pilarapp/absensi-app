@@ -11,8 +11,26 @@ import Toast from '@/components/Toast';
 
 export default function EmployeeDashboard() {
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
+
+  // Ambil cache karyawan dari sessionStorage jika ada (untuk navigasi antar tab instan)
+  const [currentUser, setCurrentUser] = useState<any>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = sessionStorage.getItem("pilar_cached_employee");
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // isAuthChecking hanya TRUE jika aplikasi baru dibuka pertama kali (belum pernah diperiksa di sesi ini)
+  const [isAuthChecking, setIsAuthChecking] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    const sessionChecked = sessionStorage.getItem("pilar_session_checked") === "true";
+    const hasCachedUser = !!sessionStorage.getItem("pilar_cached_employee");
+    return !(sessionChecked && hasCachedUser);
+  });
+
   const [currentTime, setCurrentTime] = useState("");
   const [currentDate, setCurrentDate] = useState("");
   const [timeCheckin, setTimeCheckin] = useState("--:--");
@@ -38,36 +56,60 @@ export default function EmployeeDashboard() {
   useEffect(() => {
     let timer: NodeJS.Timeout;
     const startTime = Date.now();
-    const MIN_LOADING_TIME = 1000; // Durasi tepat 1 detik pemeriksaan sesi
+    
+    // Jika sesi sudah pernah diperiksa di sesi ini (misal saat klik tab Beranda), durasi loading 0 detik (instan)
+    const isAlreadyChecked = typeof window !== 'undefined' && sessionStorage.getItem("pilar_session_checked") === "true";
+    const MIN_LOADING_TIME = isAlreadyChecked ? 0 : 1000;
 
     const finishLoading = (action: () => void) => {
       const elapsed = Date.now() - startTime;
       const remaining = Math.max(0, MIN_LOADING_TIME - elapsed);
-      setTimeout(action, remaining);
+      if (remaining === 0) {
+        action();
+      } else {
+        setTimeout(action, remaining);
+      }
     };
     
     // Cek awal sesi lokal dengan animasi pemeriksaan sesi
     const hasLocalSession = typeof window !== 'undefined' && (localStorage.getItem("user_email") || localStorage.getItem("pilar_logged_in"));
     if (!hasLocalSession) {
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem("pilar_session_checked");
+        sessionStorage.removeItem("pilar_cached_employee");
+      }
       finishLoading(() => router.replace('/login'));
       return;
+    }
+
+    // Jika sudah ada cache pengguna saat berpindah tab, langsung inisialisasi data absen tanpa tunggu
+    if (isAlreadyChecked && currentUser?.id) {
+      init(currentUser.id);
     }
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
         const emp = await getEmployee(user.uid);
         if (emp) {
+          try {
+            sessionStorage.setItem("pilar_session_checked", "true");
+            sessionStorage.setItem("pilar_cached_employee", JSON.stringify(emp));
+          } catch {}
           finishLoading(() => {
             setCurrentUser(emp);
             setIsAuthChecking(false);
             init(emp.id);
           });
         } else {
+          sessionStorage.removeItem("pilar_session_checked");
+          sessionStorage.removeItem("pilar_cached_employee");
           finishLoading(() => router.replace('/login'));
         }
       } else {
         localStorage.removeItem("pilar_logged_in");
         localStorage.removeItem("user_email");
+        sessionStorage.removeItem("pilar_session_checked");
+        sessionStorage.removeItem("pilar_cached_employee");
         finishLoading(() => router.replace('/login'));
       }
     });
