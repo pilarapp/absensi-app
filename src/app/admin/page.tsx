@@ -1778,7 +1778,7 @@ export default function AdminDesktopPage() {
                         
                         <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all">
                           <span className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-sm border
-                            ${karyawan.status === "Aktif" ? "bg-pilar-darker text-pilar-gold border-black" : "bg-gray-100 text-gray-500 border-gray-200"}`
+                            ${karyawan.status === "Aktif" ? "bg-green-100 text-green-700 border-green-200" : "bg-gray-100 text-gray-500 border-gray-200"}`
                           }>
                             {karyawan.status}
                           </span>
@@ -2524,15 +2524,15 @@ export default function AdminDesktopPage() {
       {/* Detail Pengajuan Modal */}
       {detailModalOpen && selectedPengajuan && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex print:block print:p-0 items-center justify-center z-[200] p-4 animate-fade-in">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col print:max-w-none print:w-full print:h-full print:rounded-none print:shadow-none print:overflow-visible animate-in zoom-in-95 duration-200 relative">
+          <div className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col print:max-w-none print:w-full print:h-full print:rounded-none print:shadow-none print:overflow-visible animate-in zoom-in-95 duration-200 relative">
             
             {/* Header Actions (On Screen Only) */}
-            <div className="print:hidden p-5 border-b border-gray-200 flex justify-between items-center bg-gray-50/80 rounded-t-3xl z-10 shadow-sm">
-              <h3 className="font-extrabold text-gray-900 text-lg tracking-tight flex items-center gap-2">
-                <i className="fa-solid fa-file-signature text-pilar-gold"></i>
-                Detail Dokumen Pengajuan
-              </h3>
-              <div className="flex items-center space-x-3">
+            <div className="print:hidden flex justify-between items-center p-6 pb-4 border-b border-gray-200 bg-white rounded-t-3xl z-10">
+              <div className="flex items-center space-x-2">
+                <i className="fa-solid fa-file-signature text-pilar-gold text-lg"></i>
+                <span className="font-bold text-gray-800 text-sm md:text-base">Detail Dokumen Pengajuan</span>
+              </div>
+              <div className="flex items-center space-x-4">
                 {selectedPengajuan.status === "Disetujui" && (
                   <button 
                     onClick={() => {
@@ -2546,18 +2546,19 @@ export default function AdminDesktopPage() {
                         document.title = originalTitle;
                       }, 50);
                     }} 
-                    className="px-4 py-2 rounded-xl border-2 border-gray-200 bg-white text-gray-700 font-bold hover:bg-gray-100 transition-all flex items-center space-x-2 text-sm shadow-sm"
+                    className="flex items-center space-x-2 border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-colors"
                   >
-                    <i className="fa-solid fa-print"></i>
-                    <span>Cetak / PDF</span>
+                    <i className="fa-solid fa-print"></i> <span>Cetak / PDF</span>
                   </button>
                 )}
-                <button onClick={() => setDetailModalOpen(false)} className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded-full transition-colors">
-                  <i className="fa-solid fa-times text-xl"></i>
+                <button 
+                  onClick={() => setDetailModalOpen(false)} 
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <i className="fa-solid fa-xmark text-lg"></i>
                 </button>
               </div>
             </div>
-
             {/* Content (Scrollable on screen, Full on Print) */}
             <div id="print-section" className="overflow-y-auto p-8 md:p-10 text-black font-sans bg-white print:p-0 print:overflow-visible flex-1 relative" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
               {/* KOP SURAT PERUSAHAAN */}
@@ -2799,112 +2800,148 @@ export default function AdminDesktopPage() {
       {/* MODAL SLIP GAJI DI ADMIN */}
       {/* MODAL SLIP GAJI RESMI ADMIN */}
       {selectedAdminSlip && (
-        <>
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200 print:hidden">
-          <div className="bg-white text-gray-800 rounded-3xl max-w-md w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border border-gray-100">
-            {/* Header Slip */}
-            <div className="bg-pilar-darker text-white p-6 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-pilar-gold/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
-              
-              <div className="flex justify-between items-start relative z-10">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20">
-                    <i className="fa-solid fa-building text-pilar-gold text-lg"></i>
-                  </div>
-                  <div>
-                    <h3 className="font-extrabold text-sm tracking-wide text-white">PT. PILAR SENTRA SOLUSI</h3>
-                    <p className="text-[10px] text-gray-300">Slip Gaji Karyawan Resmi</p>
-                  </div>
-                </div>
+        <div className="fixed inset-0 z-50 bg-gray-900/90 backdrop-blur-sm flex justify-center overflow-y-auto p-2 sm:p-8 animate-in fade-in pb-safe">
+          <div 
+            id="print-section" 
+            className="bg-white text-black font-sans p-6 sm:p-10 md:p-12 w-full max-w-4xl shadow-2xl sm:my-auto my-0 min-h-screen sm:min-h-0 sm:rounded-3xl relative" 
+            style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}
+          >
+            {/* CUSTOM HEADER MODAL (Hidden on Print) */}
+            <div className="print:hidden flex justify-between items-center pb-4 mb-6 border-b border-gray-200">
+              <div className="flex items-center space-x-2">
+                <i className="fa-solid fa-file-signature text-pilar-gold text-lg"></i>
+                <span className="font-bold text-gray-800 text-sm md:text-base">Detail Slip Gaji</span>
+              </div>
+              <div className="flex items-center space-x-4">
                 <button 
-                  type="button"
-                  onClick={() => setSelectedAdminSlip(null)}
-                  className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white flex items-center justify-center transition-colors"
+                  onClick={() => window.print()} 
+                  className="flex items-center space-x-2 border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-colors"
                 >
-                  <i className="fa-solid fa-xmark text-base"></i>
+                  <i className="fa-solid fa-print"></i> <span>Cetak / PDF</span>
+                </button>
+                <button 
+                  onClick={() => setSelectedAdminSlip(null)} 
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <i className="fa-solid fa-xmark text-lg"></i>
                 </button>
               </div>
+            </div>
+            {/* KOP SURAT PERUSAHAAN */}
+            <div className="hidden print:flex items-center justify-between border-b-2 border-pilar-darker pb-4 mb-6">
+              <div className="flex items-center space-x-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img 
+                  src="https://res.cloudinary.com/sgcxykbd/image/upload/v1788834500/logo_horizontal_2.png" 
+                  alt="Logo PT. Pilar Sentra Solusi" 
+                  className="h-14 object-contain" 
+                />
+              </div>
+              <div className="text-right">
+                <h1 className="text-xl font-black tracking-tight text-pilar-darker uppercase">PT. PILAR SENTRA SOLUSI</h1>
+                <p className="text-xs text-gray-600 font-semibold">General Contractor & IT Solutions</p>
+                <p className="text-[11px] text-gray-500">Grand Slipi Tower Lt. 9, Jakarta Barat 11480 | info@pilarsentrasolusi.com</p>
+              </div>
+            </div>
 
-              <div className="mt-4 pt-3 border-t border-white/10 flex justify-between items-end relative z-10 text-xs">
-                <div>
-                  <span className="text-[10px] text-gray-400 block">Nomor Slip:</span>
-                  <span className="font-mono font-bold text-pilar-gold text-xs">{selectedAdminSlip.id}</span>
+            {/* JUDUL SLIP GAJI */}
+            <div className="hidden print:block text-center my-6">
+              <h2 className="text-lg font-black uppercase tracking-wider text-pilar-darker border-b-2 border-pilar-gold inline-block pb-1">
+                SLIP GAJI KARYAWAN (CONFIDENTIAL PAYSLIP)
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">Bukti Resmi Pembayaran Gaji Karyawan</p>
+            </div>
+
+            {/* METADATA KARYAWAN & TRANSAKSI */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 p-4 rounded-xl border border-gray-300 bg-gray-50/70 text-xs">
+              <div className="space-y-2">
+                <div className="grid grid-cols-[120px_auto_1fr] gap-2">
+                  <span className="text-gray-600 font-medium">Nama Karyawan</span>
+                  <span className="text-gray-400">:</span>
+                  <span className="font-bold text-gray-900 uppercase">{selectedAdminSlip.nama}</span>
                 </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-gray-400 block">Tanggal Pencairan:</span>
-                  <span className="font-bold text-white text-xs">{selectedAdminSlip.tanggal}</span>
+                <div className="grid grid-cols-[120px_auto_1fr] gap-2">
+                  <span className="text-gray-600 font-medium">Nomor Slip</span>
+                  <span className="text-gray-400">:</span>
+                  <span className="font-mono font-bold text-gray-800">{selectedAdminSlip.id}</span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="grid grid-cols-[120px_auto_1fr] gap-2">
+                  <span className="text-gray-600 font-medium">Tanggal Pencairan</span>
+                  <span className="text-gray-400">:</span>
+                  <span className="font-bold text-gray-900">{selectedAdminSlip.tanggal}</span>
+                </div>
+                <div className="grid grid-cols-[120px_auto_1fr] gap-2">
+                  <span className="text-gray-600 font-medium">Status Pembayaran</span>
+                  <span className="text-gray-400">:</span>
+                  <span className="font-extrabold text-emerald-700">LUNAS / BERHASIL DITRANSFER</span>
                 </div>
               </div>
             </div>
 
-            {/* Slip Content */}
-            <div className="p-6 overflow-y-auto space-y-4 text-xs">
-              {/* Employee Info */}
-              <div className="bg-gray-50 rounded-2xl p-3.5 border border-gray-100 flex justify-between items-center">
-                <div>
-                  <span className="text-[10px] text-gray-400 block uppercase font-bold tracking-wider">Nama Karyawan</span>
-                  <span className="font-extrabold text-gray-800 text-base">{selectedAdminSlip.nama}</span>
+            {/* TABEL PENGHASILAN & POTONGAN */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+              {/* Kolom Kiri: Penghasilan */}
+              <div className="border border-gray-300 rounded-xl overflow-hidden">
+                <div className="bg-pilar-darker text-pilar-gold font-bold px-4 py-2.5 text-xs uppercase tracking-wider flex justify-between items-center">
+                  <span>A. Penghasilan (Earnings)</span>
+                  <i className="fa-solid fa-circle-plus text-xs"></i>
                 </div>
-                <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
-                  Lunas
-                </span>
-              </div>
-
-              {/* Penghasilan */}
-              <div>
-                <div className="flex items-center space-x-1.5 mb-2 text-gray-500 font-bold uppercase tracking-wider text-[10px]">
-                  <i className="fa-solid fa-circle-plus text-emerald-500"></i>
-                  <span>Penghasilan (Earnings)</span>
-                </div>
-                <div className="space-y-1.5 bg-gray-50/50 rounded-2xl p-3.5 border border-gray-100">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-600">Gaji Pokok</span>
-                    <span className="font-bold text-gray-800">Rp {new Intl.NumberFormat('id-ID').format(selectedAdminSlip.gajiPokok || 0)}</span>
+                <div className="p-4 space-y-3 text-xs">
+                  <div className="flex justify-between items-center py-1.5 border-b border-gray-200">
+                    <span className="text-gray-700">Gaji Pokok</span>
+                    <span className="font-bold text-gray-900">
+                      Rp {new Intl.NumberFormat('id-ID').format(selectedAdminSlip.gajiPokok || 0)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1.5 border-b border-gray-100 text-gray-400">
+                    <span>Tunjangan Operasional</span>
+                    <span>Rp 0</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-3 border-t border-gray-300 font-extrabold text-gray-900 text-sm">
+                    <span>Total Penghasilan (A)</span>
+                    <span className="text-pilar-darker">
+                      Rp {new Intl.NumberFormat('id-ID').format(selectedAdminSlip.gajiPokok || 0)}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* Pemotongan */}
-              <div>
-                <div className="flex items-center space-x-1.5 mb-2 text-gray-500 font-bold uppercase tracking-wider text-[10px]">
-                  <i className="fa-solid fa-circle-minus text-red-500"></i>
-                  <span>Potongan (Deductions)</span>
+              {/* Kolom Kanan: Potongan */}
+              <div className="border border-gray-300 rounded-xl overflow-hidden">
+                <div className="bg-pilar-darker text-pilar-gold font-bold px-4 py-2.5 text-xs uppercase tracking-wider flex justify-between items-center">
+                  <span>B. Potongan (Deductions)</span>
+                  <i className="fa-solid fa-circle-minus text-xs"></i>
                 </div>
-                <div className="space-y-2 bg-gray-50/50 rounded-2xl p-3.5 border border-gray-100 text-xs">
-                  {/* Potongan Alpa */}
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Potongan Alpa ({selectedAdminSlip.alpa || 0} Hari)</span>
-                    <span className={(selectedAdminSlip.potonganAlpa || 0) > 0 ? "font-bold text-red-600" : "font-medium text-gray-400"}>
+                <div className="p-4 space-y-2 text-xs">
+                  <div className="flex justify-between items-center py-1 border-b border-gray-100">
+                    <span className="text-gray-700">Potongan Alpa ({selectedAdminSlip.alpa || 0} Hari)</span>
+                    <span className={(selectedAdminSlip.potonganAlpa || 0) > 0 ? "font-bold text-red-600" : "text-gray-500"}>
                       {(selectedAdminSlip.potonganAlpa || 0) > 0 
                         ? `- Rp ${new Intl.NumberFormat('id-ID').format(selectedAdminSlip.potonganAlpa!)}` 
                         : "Rp 0"}
                     </span>
                   </div>
-
-                  {/* BPJS Ketenagakerjaan */}
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">BPJS Ketenagakerjaan ({selectedAdminSlip.bpjsTkRate ?? 2}%)</span>
-                    <span className={(selectedAdminSlip.potonganBpjsTk || 0) > 0 ? "font-bold text-red-600" : "font-medium text-gray-400"}>
+                  <div className="flex justify-between items-center py-1 border-b border-gray-100">
+                    <span className="text-gray-700">BPJS Ketenagakerjaan ({selectedAdminSlip.bpjsTkRate ?? 2}%)</span>
+                    <span className={(selectedAdminSlip.potonganBpjsTk || 0) > 0 ? "font-bold text-red-600" : "text-gray-500"}>
                       {(selectedAdminSlip.potonganBpjsTk || 0) > 0 
                         ? `- Rp ${new Intl.NumberFormat('id-ID').format(selectedAdminSlip.potonganBpjsTk!)}` 
                         : "Rp 0"}
                     </span>
                   </div>
-
-                  {/* BPJS Kesehatan */}
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">BPJS Kesehatan ({selectedAdminSlip.bpjsKesRate ?? 1}%)</span>
-                    <span className={(selectedAdminSlip.potonganBpjsKes || 0) > 0 ? "font-bold text-red-600" : "font-medium text-gray-400"}>
+                  <div className="flex justify-between items-center py-1 border-b border-gray-100">
+                    <span className="text-gray-700">BPJS Kesehatan ({selectedAdminSlip.bpjsKesRate ?? 1}%)</span>
+                    <span className={(selectedAdminSlip.potonganBpjsKes || 0) > 0 ? "font-bold text-red-600" : "text-gray-500"}>
                       {(selectedAdminSlip.potonganBpjsKes || 0) > 0 
                         ? `- Rp ${new Intl.NumberFormat('id-ID').format(selectedAdminSlip.potonganBpjsKes!)}` 
                         : "Rp 0"}
                     </span>
                   </div>
-
-                  {/* Total Potongan */}
-                  <div className="flex justify-between items-center pt-2 border-t border-gray-200/80 font-bold">
-                    <span className="text-gray-700">Total Potongan</span>
-                    <span className={(selectedAdminSlip.potongan || 0) > 0 ? "text-red-600" : "text-gray-500"}>
+                  <div className="flex justify-between items-center pt-3 border-t border-gray-300 font-extrabold text-red-600 text-sm">
+                    <span className="text-gray-800">Total Potongan (B)</span>
+                    <span>
                       {(selectedAdminSlip.potongan || 0) > 0 
                         ? `- Rp ${new Intl.NumberFormat('id-ID').format(selectedAdminSlip.potongan)}` 
                         : "Rp 0"}
@@ -2912,220 +2949,49 @@ export default function AdminDesktopPage() {
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* Total Gaji Bersih */}
-              <div className="p-4 rounded-2xl bg-pilar-darker text-white flex justify-between items-center shadow-lg">
-                <div>
-                  <span className="text-[10px] text-pilar-gold font-bold uppercase tracking-wider block">Gaji Bersih (Take Home Pay)</span>
-                  <span className="text-xl font-black text-white">
-                    Rp {new Intl.NumberFormat('id-ID').format(selectedAdminSlip.gajiBersih || 0)}
-                  </span>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-pilar-gold text-lg">
-                  <i className="fa-solid fa-check-double"></i>
-                </div>
+            {/* HIGHLIGHT BOX: TAKE HOME PAY */}
+            <div className="border-2 border-pilar-darker rounded-2xl p-4 sm:p-5 bg-gray-50 flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 shadow-sm space-y-4 sm:space-y-0">
+              <div>
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block">
+                  Gaji Bersih Diterima (Take Home Pay = A - B)
+                </span>
+                <span className="text-2xl font-black text-pilar-darker tracking-tight">
+                  Rp {new Intl.NumberFormat('id-ID').format(selectedAdminSlip.gajiBersih || 0)}
+                </span>
               </div>
+              <div className="text-right">
+                <span className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <i className="fa-solid fa-circle-check"></i>
+                  <span>LUNAS DITRANSFER</span>
+                </span>
+              </div>
+            </div>
 
-              {/* Catatan Legal */}
-              <div className="text-center pt-2 border-t border-gray-100">
-                <p className="text-[10px] text-gray-400 italic">
-                  Dokumen ini diterbitkan secara sah oleh HRD PT. Pilar Sentra Solusi.
+            {/* TANDA TANGAN */}
+            <div className="hidden print:grid grid-cols-2 gap-4 sm:gap-12 mt-12 text-center text-xs">
+              <div>
+                <p className="text-gray-600 mb-20 font-medium">Penerima (Karyawan),</p>
+                <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 inline-block min-w-[120px] sm:min-w-[200px] uppercase">
+                  {selectedAdminSlip.nama}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-500 mb-1">Jakarta, {selectedAdminSlip.tanggal}</p>
+                <p className="text-gray-600 mb-20 font-medium">Disahkan oleh (HRD & Finance),</p>
+                <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 inline-block min-w-[120px] sm:min-w-[200px]">
+                  PT. PILAR SENTRA SOLUSI
                 </p>
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="p-4 bg-gray-50 border-t border-gray-100 flex space-x-3">
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="flex-1 py-2.5 px-4 bg-pilar-darker hover:bg-black text-pilar-gold rounded-xl font-bold text-xs flex items-center justify-center space-x-2 shadow-sm transition-all"
-              >
-                <i className="fa-solid fa-print"></i>
-                <span>Cetak / Simpan PDF</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedAdminSlip(null)}
-                className="py-2.5 px-5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-xs transition-colors"
-              >
-                Tutup
-              </button>
+            {/* FOOTER */}
+            <div className="hidden print:block mt-14 pt-4 border-t border-gray-200 text-center text-[10px] text-gray-400 italic">
+              Dokumen ini diterbitkan secara resmi melalui Sistem Payroll Elektronik PT. Pilar Sentra Solusi dan merupakan bukti penerimaan gaji yang sah.
             </div>
           </div>
         </div>
-
-        {/* DOKUMEN CETAK SLIP GAJI RESMI ADMIN (HANYA MUNCUL SAAT PRINT / SIMPAN PDF) */}
-        <div 
-          id="print-section" 
-          className="hidden print:block text-black font-sans p-8 md:p-12 bg-white w-full min-h-screen" 
-          style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}
-        >
-          {/* KOP SURAT PERUSAHAAN */}
-          <div className="flex items-center justify-between border-b-2 border-pilar-darker pb-4 mb-6">
-            <div className="flex items-center space-x-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img 
-                src="https://res.cloudinary.com/sgcxykbd/image/upload/v1788834500/logo_horizontal_2.png" 
-                alt="Logo PT. Pilar Sentra Solusi" 
-                className="h-14 object-contain" 
-              />
-            </div>
-            <div className="text-right">
-              <h1 className="text-xl font-black tracking-tight text-pilar-darker uppercase">PT. PILAR SENTRA SOLUSI</h1>
-              <p className="text-xs text-gray-600 font-semibold">General Contractor & IT Solutions</p>
-              <p className="text-[11px] text-gray-500">Grand Slipi Tower Lt. 9, Jakarta Barat 11480 | info@pilarsentrasolusi.com</p>
-            </div>
-          </div>
-
-          {/* JUDUL SLIP GAJI */}
-          <div className="text-center my-6">
-            <h2 className="text-lg font-black uppercase tracking-wider text-pilar-darker border-b-2 border-pilar-gold inline-block pb-1">
-              SLIP GAJI KARYAWAN (CONFIDENTIAL PAYSLIP)
-            </h2>
-            <p className="text-xs text-gray-500 mt-1">Bukti Resmi Pembayaran Gaji Karyawan</p>
-          </div>
-
-          {/* METADATA KARYAWAN & TRANSAKSI */}
-          <div className="grid grid-cols-2 gap-4 mb-6 p-4 rounded-xl border border-gray-300 bg-gray-50/70 text-xs">
-            <div className="space-y-2">
-              <div className="grid grid-cols-[120px_auto_1fr] gap-2">
-                <span className="text-gray-600 font-medium">Nama Karyawan</span>
-                <span className="text-gray-400">:</span>
-                <span className="font-bold text-gray-900 uppercase">{selectedAdminSlip.nama}</span>
-              </div>
-              <div className="grid grid-cols-[120px_auto_1fr] gap-2">
-                <span className="text-gray-600 font-medium">Nomor Slip</span>
-                <span className="text-gray-400">:</span>
-                <span className="font-mono font-bold text-gray-800">{selectedAdminSlip.id}</span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="grid grid-cols-[120px_auto_1fr] gap-2">
-                <span className="text-gray-600 font-medium">Tanggal Pencairan</span>
-                <span className="text-gray-400">:</span>
-                <span className="font-bold text-gray-900">{selectedAdminSlip.tanggal}</span>
-              </div>
-              <div className="grid grid-cols-[120px_auto_1fr] gap-2">
-                <span className="text-gray-600 font-medium">Status Pembayaran</span>
-                <span className="text-gray-400">:</span>
-                <span className="font-extrabold text-emerald-700">LUNAS / BERHASIL DITRANSFER</span>
-              </div>
-            </div>
-          </div>
-
-          {/* TABEL PENGHASILAN & POTONGAN */}
-          <div className="grid grid-cols-2 gap-6 mb-6">
-            {/* Kolom Kiri: Penghasilan */}
-            <div className="border border-gray-300 rounded-xl overflow-hidden">
-              <div className="bg-pilar-darker text-pilar-gold font-bold px-4 py-2.5 text-xs uppercase tracking-wider flex justify-between items-center">
-                <span>A. Penghasilan (Earnings)</span>
-                <i className="fa-solid fa-circle-plus text-xs"></i>
-              </div>
-              <div className="p-4 space-y-3 text-xs">
-                <div className="flex justify-between items-center py-1.5 border-b border-gray-200">
-                  <span className="text-gray-700">Gaji Pokok</span>
-                  <span className="font-bold text-gray-900">
-                    Rp {new Intl.NumberFormat('id-ID').format(selectedAdminSlip.gajiPokok || 0)}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center py-1.5 border-b border-gray-100 text-gray-400">
-                  <span>Tunjangan Operasional</span>
-                  <span>Rp 0</span>
-                </div>
-                <div className="flex justify-between items-center pt-3 border-t border-gray-300 font-extrabold text-gray-900 text-sm">
-                  <span>Total Penghasilan (A)</span>
-                  <span className="text-pilar-darker">
-                    Rp {new Intl.NumberFormat('id-ID').format(selectedAdminSlip.gajiPokok || 0)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Kolom Kanan: Potongan */}
-            <div className="border border-gray-300 rounded-xl overflow-hidden">
-              <div className="bg-pilar-darker text-pilar-gold font-bold px-4 py-2.5 text-xs uppercase tracking-wider flex justify-between items-center">
-                <span>B. Potongan (Deductions)</span>
-                <i className="fa-solid fa-circle-minus text-xs"></i>
-              </div>
-              <div className="p-4 space-y-2 text-xs">
-                <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                  <span className="text-gray-700">Potongan Alpa ({selectedAdminSlip.alpa || 0} Hari)</span>
-                  <span className={(selectedAdminSlip.potonganAlpa || 0) > 0 ? "font-bold text-red-600" : "text-gray-500"}>
-                    {(selectedAdminSlip.potonganAlpa || 0) > 0 
-                      ? `- Rp ${new Intl.NumberFormat('id-ID').format(selectedAdminSlip.potonganAlpa!)}` 
-                      : "Rp 0"}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                  <span className="text-gray-700">BPJS Ketenagakerjaan ({selectedAdminSlip.bpjsTkRate ?? 2}%)</span>
-                  <span className={(selectedAdminSlip.potonganBpjsTk || 0) > 0 ? "font-bold text-red-600" : "text-gray-500"}>
-                    {(selectedAdminSlip.potonganBpjsTk || 0) > 0 
-                      ? `- Rp ${new Intl.NumberFormat('id-ID').format(selectedAdminSlip.potonganBpjsTk!)}` 
-                      : "Rp 0"}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                  <span className="text-gray-700">BPJS Kesehatan ({selectedAdminSlip.bpjsKesRate ?? 1}%)</span>
-                  <span className={(selectedAdminSlip.potonganBpjsKes || 0) > 0 ? "font-bold text-red-600" : "text-gray-500"}>
-                    {(selectedAdminSlip.potonganBpjsKes || 0) > 0 
-                      ? `- Rp ${new Intl.NumberFormat('id-ID').format(selectedAdminSlip.potonganBpjsKes!)}` 
-                      : "Rp 0"}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center pt-3 border-t border-gray-300 font-extrabold text-red-600 text-sm">
-                  <span className="text-gray-800">Total Potongan (B)</span>
-                  <span>
-                    {(selectedAdminSlip.potongan || 0) > 0 
-                      ? `- Rp ${new Intl.NumberFormat('id-ID').format(selectedAdminSlip.potongan)}` 
-                      : "Rp 0"}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* HIGHLIGHT BOX: TAKE HOME PAY */}
-          <div className="border-2 border-pilar-darker rounded-2xl p-5 bg-gray-50 flex justify-between items-center mb-8 shadow-sm">
-            <div>
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block">
-                Gaji Bersih Diterima (Take Home Pay = A - B)
-              </span>
-              <span className="text-2xl font-black text-pilar-darker tracking-tight">
-                Rp {new Intl.NumberFormat('id-ID').format(selectedAdminSlip.gajiBersih || 0)}
-              </span>
-            </div>
-            <div className="text-right">
-              <span className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                <i className="fa-solid fa-circle-check"></i>
-                <span>LUNAS DITRANSFER</span>
-              </span>
-            </div>
-          </div>
-
-          {/* TANDA TANGAN */}
-          <div className="grid grid-cols-2 gap-12 mt-12 text-center text-xs">
-            <div>
-              <p className="text-gray-600 mb-20 font-medium">Penerima (Karyawan),</p>
-              <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 inline-block min-w-[200px] uppercase">
-                {selectedAdminSlip.nama}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500 mb-1">Jakarta, {selectedAdminSlip.tanggal}</p>
-              <p className="text-gray-600 mb-20 font-medium">Disahkan oleh (HRD & Finance),</p>
-              <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 inline-block min-w-[200px]">
-                PT. PILAR SENTRA SOLUSI
-              </p>
-            </div>
-          </div>
-
-          {/* FOOTER */}
-          <div className="mt-14 pt-4 border-t border-gray-200 text-center text-[10px] text-gray-400 italic">
-            Dokumen ini diterbitkan secara resmi melalui Sistem Payroll Elektronik PT. Pilar Sentra Solusi dan merupakan bukti penerimaan gaji yang sah.
-          </div>
-        </div>
-        </>
       )}
 
     </div>

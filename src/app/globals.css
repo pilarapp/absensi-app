@@ -85,15 +85,12 @@ body {
 }
 
 /* Custom Scrollbar for inner content */
+.scrollable-content {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
 .scrollable-content::-webkit-scrollbar {
-  width: 6px;
-}
-.scrollable-content::-webkit-scrollbar-track {
-  background: rgba(255,255,255,0.05);
-}
-.scrollable-content::-webkit-scrollbar-thumb {
-  background: rgba(212, 175, 55, 0.3);
-  border-radius: 3px;
+  display: none; /* Chrome, Safari and Opera */
 }
 
 @media print {

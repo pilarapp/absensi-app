@@ -295,7 +295,8 @@ export default function PengajuanPage() {
   return (
     <div className="mobile-container flex flex-col text-pilar-textPrimary mx-auto shadow-2xl">
       {/* Header */}
-      <header className="pt-10 pb-6 px-6 bg-pilar-darker rounded-b-3xl shadow-md z-10 relative">
+      {!isFormOpen && (
+        <header className="pt-10 pb-6 px-6 bg-pilar-darker rounded-b-3xl shadow-md z-10 relative">
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-xl font-bold font-heading text-pilar-textPrimary">
@@ -310,12 +311,13 @@ export default function PengajuanPage() {
           </div>
         </div>
       </header>
+      )}
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto scrollable-content px-6 py-6 pb-24 animate-slide-up">
         
         {toastMessage && (
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 w-11/12 max-w-sm z-50 pointer-events-auto">
+          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 w-11/12 max-w-sm z-[60] pointer-events-auto">
             <Toast 
               type={toastMessage.toLowerCase().includes("kesalahan") || toastMessage.toLowerCase().includes("maksimal") || toastMessage.toLowerCase().includes("minimal") ? "error" : toastMessage.toLowerCase().includes("mengunggah") ? "info" : "success"}
               description={toastMessage} 
@@ -325,14 +327,18 @@ export default function PengajuanPage() {
         )}
 
         {isFormOpen && (
-          <div className="animate-fade-in">
-            <button 
-              onClick={() => setIsFormOpen(false)}
-              className="mb-4 flex items-center text-pilar-textSecondary hover:text-white transition text-sm font-medium"
-            >
-              <i className="fa-solid fa-arrow-left mr-2"></i> Kembali
-            </button>
-            <form onSubmit={handleSubmit} className="bg-white/5 p-5 rounded-2xl border border-white/10 mb-8">
+          <div className="fixed inset-0 z-50 bg-pilar-dark overflow-y-auto scrollable-content animate-slide-up flex flex-col pb-safe">
+            <div className="sticky top-0 bg-pilar-darker/95 backdrop-blur-md px-6 py-5 border-b border-white/10 z-10 flex items-center justify-between shadow-md">
+              <h2 className="text-white font-bold font-heading text-lg">{editId ? "Perbaiki Pengajuan" : "Formulir Pengajuan"}</h2>
+              <button 
+                onClick={() => setIsFormOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 text-pilar-textSecondary hover:text-white transition"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <div className="p-6 pb-24 flex-1">
+              <form onSubmit={handleSubmit} className="flex flex-col">
           
           {/* Read-Only Data Pegawai */}
           <div className="mb-6 p-4 bg-pilar-darker rounded-xl border border-white/5">
@@ -578,15 +584,15 @@ export default function PengajuanPage() {
             <button 
               type="submit"
               disabled={isSubmitting}
-              className={`w-full py-3.5 rounded-xl text-sm font-bold flex items-center justify-center space-x-2 transition-all ${
-                isSubmitting ? "bg-gray-500 text-gray-300 cursor-not-allowed" : "bg-pilar-gold text-pilar-darker hover:bg-white hover:shadow-lg"
+              className={`w-full py-3.5 rounded-xl text-sm font-bold flex items-center justify-center space-x-2 transition-all relative overflow-hidden ${
+                isSubmitting ? "bg-pilar-gold/80 text-pilar-darker cursor-wait" : "bg-pilar-gold text-pilar-darker hover:bg-white hover:shadow-lg"
               }`}
             >
               {isSubmitting ? (
-                <>
-                  <i className="fa-solid fa-spinner fa-spin"></i>
-                  <span>Memproses...</span>
-                </>
+                <div className="flex items-center space-x-2 animate-pulse">
+                  <i className="fa-solid fa-circle-notch fa-spin text-lg"></i>
+                  <span>Mengirim Data...</span>
+                </div>
               ) : (
                 <>
                   <i className="fa-solid fa-paper-plane"></i>
@@ -594,7 +600,8 @@ export default function PengajuanPage() {
                 </>
               )}
             </button>
-        </form>
+              </form>
+            </div>
           </div>
         )}
 
