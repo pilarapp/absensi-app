@@ -38,7 +38,7 @@ export default function EmployeeDashboard() {
   useEffect(() => {
     let timer: NodeJS.Timeout;
     const startTime = Date.now();
-    const MIN_LOADING_TIME = 850; // Durasi halus pemeriksaan sesi
+    const MIN_LOADING_TIME = 1000; // Durasi tepat 1 detik pemeriksaan sesi
 
     const finishLoading = (action: () => void) => {
       const elapsed = Date.now() - startTime;
