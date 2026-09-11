@@ -2,7 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: false,
-  // output: "standalone", // Buka komentar ini HANYA jika Anda mem-build menggunakan Docker
+  async rewrites() {
+    return [
+      {
+        source: "/install",
+        destination: "/download",
+      },
+    ];
+  },
 };
 
 export default nextConfig;
