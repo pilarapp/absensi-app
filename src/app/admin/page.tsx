@@ -1543,6 +1543,7 @@ export default function AdminDesktopPage() {
                             <th className="px-6 py-2 font-medium">Karyawan</th>
                             <th className="px-6 py-2 font-medium">Jenis Pengajuan</th>
                             <th className="px-6 py-2 font-medium">Tanggal</th>
+                            <th className="px-6 py-2 font-medium">Durasi</th>
                             <th className="px-6 py-2 font-medium text-right">Aksi</th>
                           </tr>
                         </thead>
@@ -1563,11 +1564,16 @@ export default function AdminDesktopPage() {
                                       );
                                     })()}
                                   </div>
-                                  <div className="font-extrabold text-gray-800 text-base">
-                                    {pengajuan.karyawanNama}
-                                    {pengajuan.isRevision && (
-                                      <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-600 border border-orange-200 uppercase tracking-wider align-middle" title="Pengajuan ini merupakan hasil revisi">Revisi</span>
-                                    )}
+                                  <div className="flex flex-col justify-center">
+                                    <div className="font-extrabold text-gray-800 text-base">
+                                      {pengajuan.karyawanNama}
+                                      {pengajuan.isRevision && (
+                                        <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-600 border border-orange-200 uppercase tracking-wider align-middle" title="Pengajuan ini merupakan hasil revisi">Revisi</span>
+                                      )}
+                                    </div>
+                                    <div className="text-[11px] text-gray-500 mt-0.5 font-semibold tracking-wide">
+                                      NIK: {karyawanList.find(k => k.id === pengajuan.karyawanId || k.nama === pengajuan.karyawanNama || (k as any).noInduk === pengajuan.karyawanId || (k as any).karyawanId === pengajuan.karyawanId)?.noInduk || "-"}
+                                    </div>
                                   </div>
                                 </div>
                               </td>
@@ -1582,6 +1588,13 @@ export default function AdminDesktopPage() {
                                 <div className="flex items-center space-x-2">
                                   <i className="fa-solid fa-calendar-day text-gray-400"></i>
                                   <span>{pengajuan.startDate}</span>
+                                </div>
+                              </td>
+                              
+                              <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-gray-600 font-medium">
+                                <div className="flex items-center space-x-2">
+                                  <i className="fa-solid fa-clock text-gray-400"></i>
+                                  <span>{pengajuan.duration} Hari</span>
                                 </div>
                               </td>
                               
@@ -1618,6 +1631,7 @@ export default function AdminDesktopPage() {
                             <th className="px-6 py-2 font-medium">Karyawan</th>
                             <th className="px-6 py-2 font-medium">Jenis Pengajuan</th>
                             <th className="px-6 py-2 font-medium">Tanggal</th>
+                            <th className="px-6 py-2 font-medium">Durasi</th>
                             <th className="px-6 py-2 font-medium">Status</th>
                             <th className="px-6 py-2 font-medium text-right">Aksi</th>
                           </tr>
@@ -1639,7 +1653,12 @@ export default function AdminDesktopPage() {
                                       );
                                     })()}
                                   </div>
-                                  <div className="font-extrabold text-gray-800 text-base">{pengajuan.karyawanNama}</div>
+                                  <div className="flex flex-col justify-center">
+                                    <div className="font-extrabold text-gray-800 text-base">{pengajuan.karyawanNama}</div>
+                                    <div className="text-[11px] text-gray-500 mt-0.5 font-semibold tracking-wide">
+                                      NIK: {karyawanList.find(k => k.id === pengajuan.karyawanId || k.nama === pengajuan.karyawanNama || (k as any).noInduk === pengajuan.karyawanId || (k as any).karyawanId === pengajuan.karyawanId)?.noInduk || "-"}
+                                    </div>
+                                  </div>
                                 </div>
                               </td>
                               
@@ -1653,6 +1672,13 @@ export default function AdminDesktopPage() {
                                 <div className="flex items-center space-x-2">
                                   <i className="fa-solid fa-calendar-day text-gray-400"></i>
                                   <span>{pengajuan.startDate}</span>
+                                </div>
+                              </td>
+                              
+                              <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-gray-600 font-medium">
+                                <div className="flex items-center space-x-2">
+                                  <i className="fa-solid fa-clock text-gray-400"></i>
+                                  <span>{pengajuan.duration} Hari</span>
                                 </div>
                               </td>
                               
