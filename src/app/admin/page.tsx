@@ -45,6 +45,44 @@ type Karyawan = {
   noInduk?: string;
   noWa?: string;
   foto?: string;
+  createdAt?: string;
+};
+
+// Helper untuk parse tanggal baik format ISO (YYYY-MM-DD), timestamp ISO, maupun format lokal id-ID (D/M/YYYY atau DD/MM/YYYY)
+const parseAttendanceDate = (dateStr: string | undefined | null): Date | null => {
+  if (!dateStr) return null;
+  if (typeof dateStr === 'string' && dateStr.includes('/')) {
+    const parts = dateStr.split('/');
+    if (parts.length === 3) {
+      const day = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const year = parseInt(parts[2], 10);
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+        return new Date(year, month, day);
+      }
+    }
+  }
+  if (typeof dateStr === 'string' && dateStr.includes('-')) {
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+        return new Date(year, month, day);
+      }
+    }
+  }
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+// Helper format ke YYYY-MM-DD standar berdasarkan waktu lokal
+const formatLocalDateStr = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 export type LokasiKerja = {
@@ -757,7 +795,8 @@ export default function AdminDesktopPage() {
 
   const matrixLaporan = useMemo(() => {
     const filteredLaporan = riwayatLaporan.filter(log => {
-       const logDate = new Date(log.tanggal);
+       const logDate = parseAttendanceDate(log.tanggal);
+       if (!logDate) return false;
        return logDate.getMonth() + 1 === laporanBulan && logDate.getFullYear() === laporanTahun;
     });
 
@@ -774,6 +813,9 @@ export default function AdminDesktopPage() {
     };
     const totalWorkingDays = getWorkingDaysInMonth(laporanBulan, laporanTahun);
 
+    const now = new Date();
+    const todayStr = formatLocalDateStr(now);
+
     const matrix = karyawanList.map(karyawan => {
        const empLogs = filteredLaporan.filter(l => l.nama === karyawan.nama);
        
@@ -787,29 +829,48 @@ export default function AdminDesktopPage() {
 
        const logsByDate: Record<string, any> = {};
        empLogs.forEach(l => {
-          const dStr = new Date(l.tanggal).toISOString().split('T')[0];
-          logsByDate[dStr] = l;
+          const lDate = parseAttendanceDate(l.tanggal);
+          if (lDate) {
+             const dStr = formatLocalDateStr(lDate);
+             logsByDate[dStr] = l;
+          }
        });
 
        const leavesByDate: Record<string, string> = {};
        approvedIzinSakit.filter(p => p.karyawanId === karyawan.id).forEach(p => {
-          const pStart = new Date(p.startDate);
-          const pEnd = new Date(p.endDate);
-          let curr = new Date(pStart);
-          while(curr <= pEnd) {
-             const dStr = curr.toISOString().split('T')[0];
-             leavesByDate[dStr] = p.type;
-             curr.setDate(curr.getDate() + 1);
+          const pStart = parseAttendanceDate(p.startDate);
+          const pEnd = parseAttendanceDate(p.endDate);
+          if (pStart && pEnd) {
+             let curr = new Date(pStart);
+             while(curr <= pEnd) {
+                const dStr = formatLocalDateStr(curr);
+                leavesByDate[dStr] = p.type;
+                curr.setDate(curr.getDate() + 1);
+             }
           }
        });
 
+       // Tanggal bergabung karyawan
+       const joinDate = parseAttendanceDate(karyawan.createdAt);
+       const joinDateStr = joinDate ? formatLocalDateStr(joinDate) : null;
+
        for (let day = 1; day <= new Date(laporanTahun, laporanBulan, 0).getDate(); day++) {
           const date = new Date(laporanTahun, laporanBulan - 1, day);
-          if (date.getDay() === 0 || date.getDay() === 6) continue;
-          if (date > new Date()) continue; 
+          if (date.getDay() === 0 || date.getDay() === 6) continue; // Lewati weekend
 
-          const dStr = date.toISOString().split('T')[0];
-          
+          const dStr = `${laporanTahun}-${String(laporanBulan).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+          // Lewati hari di masa depan
+          if (dStr > todayStr) continue;
+
+          // Lewati hari sebelum karyawan bergabung/dibuat
+          if (joinDateStr && dStr < joinDateStr) continue;
+
+          // Jika hari ini masih berjalan dan belum ada log absensi, jangan langsung anggap Alpha/bolos
+          if (dStr === todayStr && !logsByDate[dStr]) {
+             continue;
+          }
+
           if (leavesByDate[dStr]) {
              if (leavesByDate[dStr] === "Cuti Sakit") s++;
              else if (leavesByDate[dStr] === "Izin Pribadi" || leavesByDate[dStr] === "Izin") i++;
@@ -2305,8 +2366,8 @@ export default function AdminDesktopPage() {
                         // Hitung otomatis Alpa dari data laporan absensi bulan & tahun yang dipilih
                         const jumlahBolos = riwayatLaporan.filter((l: any) => {
                           if (l.nama !== k.nama || l.status !== "Alpa" || !l.tanggal) return false;
-                          const lDate = new Date(l.tanggal);
-                          return !isNaN(lDate.getTime()) && 
+                          const lDate = parseAttendanceDate(l.tanggal);
+                          return lDate && 
                                  lDate.getMonth() + 1 === laporanBulan && 
                                  lDate.getFullYear() === laporanTahun;
                         }).length;
