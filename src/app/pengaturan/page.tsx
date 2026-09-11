@@ -342,7 +342,7 @@ export default function PengaturanPage() {
   };
 
   return (
-    <div className="mobile-container flex flex-col text-pilar-textPrimary mx-auto shadow-2xl relative min-h-screen">
+    <div className="mobile-container flex flex-col text-pilar-textPrimary mx-auto shadow-2xl relative">
       {/* Header */}
       <header className="pt-10 pb-6 px-6 bg-pilar-darker rounded-b-3xl shadow-md z-10 relative">
         <div className="flex justify-between items-center">
