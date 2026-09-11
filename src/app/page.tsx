@@ -37,11 +37,19 @@ export default function EmployeeDashboard() {
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
+    const startTime = Date.now();
+    const MIN_LOADING_TIME = 850; // Durasi halus pemeriksaan sesi
+
+    const finishLoading = (action: () => void) => {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, MIN_LOADING_TIME - elapsed);
+      setTimeout(action, remaining);
+    };
     
-    // Cek awal sesi lokal sebelum menunggu Firebase (mencegah glitch/flash konten absensi)
+    // Cek awal sesi lokal dengan animasi pemeriksaan sesi
     const hasLocalSession = typeof window !== 'undefined' && (localStorage.getItem("user_email") || localStorage.getItem("pilar_logged_in"));
     if (!hasLocalSession) {
-      router.replace('/login');
+      finishLoading(() => router.replace('/login'));
       return;
     }
 
@@ -49,16 +57,18 @@ export default function EmployeeDashboard() {
       if (user) {
         const emp = await getEmployee(user.uid);
         if (emp) {
-          setCurrentUser(emp);
-          setIsAuthChecking(false);
-          init(emp.id);
+          finishLoading(() => {
+            setCurrentUser(emp);
+            setIsAuthChecking(false);
+            init(emp.id);
+          });
         } else {
-          router.replace('/login');
+          finishLoading(() => router.replace('/login'));
         }
       } else {
         localStorage.removeItem("pilar_logged_in");
         localStorage.removeItem("user_email");
-        router.replace('/login');
+        finishLoading(() => router.replace('/login'));
       }
     });
 
@@ -292,22 +302,36 @@ export default function EmployeeDashboard() {
 
   if (isAuthChecking) {
     return (
-      <div className="mobile-container flex flex-col items-center justify-center text-pilar-textPrimary mx-auto shadow-2xl relative overflow-hidden bg-pilar-darker">
+      <div className="mobile-container flex flex-col items-center justify-center text-pilar-textPrimary mx-auto shadow-2xl relative overflow-hidden bg-pilar-darker select-none">
         {/* Decorative Glow */}
-        <div className="absolute top-[-10%] left-[-20%] w-60 h-60 bg-pilar-gold/10 rounded-full blur-[70px] pointer-events-none"></div>
-        <div className="absolute bottom-[-10%] right-[-20%] w-60 h-60 bg-blue-600/10 rounded-full blur-[70px] pointer-events-none"></div>
+        <div className="absolute top-[-10%] left-[-20%] w-64 h-64 bg-pilar-gold/15 rounded-full blur-[80px] pointer-events-none"></div>
+        <div className="absolute bottom-[-10%] right-[-20%] w-64 h-64 bg-blue-600/15 rounded-full blur-[80px] pointer-events-none"></div>
 
-        <div className="flex flex-col items-center animate-fade-in z-10 px-6 text-center">
-          <div className="w-20 h-20 rounded-3xl overflow-hidden shadow-2xl border-2 border-pilar-gold/40 mb-4 bg-pilar-darker relative">
-            <img src="/icon-512.png" alt="PilarAPP" className="w-full h-full object-cover" />
+        <div className="flex flex-col items-center z-10 px-6 text-center animate-fade-in">
+          {/* Logo with pulsing glow */}
+          <div className="relative mb-5">
+            <div className="absolute inset-0 bg-pilar-gold/30 rounded-3xl blur-xl animate-pulse"></div>
+            <div className="w-20 h-20 rounded-3xl overflow-hidden shadow-2xl border-2 border-pilar-gold/50 bg-pilar-darker relative">
+              <img src="/icon-512.png" alt="PilarAPP" className="w-full h-full object-cover" />
+            </div>
           </div>
+
           <h1 className="text-2xl font-black text-white tracking-tight">
             Pilar<span className="text-pilar-gold">APP</span>
           </h1>
-          <p className="text-xs text-gray-400 mt-1 font-medium">PT. Pilar Sentra Solusi</p>
-          <div className="mt-8 flex items-center space-x-2 text-xs text-pilar-gold/80 font-bold">
-            <div className="w-4 h-4 border-2 border-pilar-gold/30 border-t-pilar-gold rounded-full animate-spin"></div>
-            <span>Memeriksa sesi...</span>
+          <p className="text-[11px] text-gray-400 font-semibold tracking-wider uppercase mt-1">
+            PT. Pilar Sentra Solusi
+          </p>
+
+          {/* Session check status badge */}
+          <div className="mt-8 flex flex-col items-center space-y-2.5">
+            <div className="flex items-center space-x-2.5 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-xs font-bold text-gray-300 shadow-inner">
+              <div className="w-3.5 h-3.5 border-2 border-pilar-gold/30 border-t-pilar-gold rounded-full animate-spin"></div>
+              <span>Memeriksa sesi karyawan...</span>
+            </div>
+            <div className="w-36 h-1 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-transparent via-pilar-gold to-transparent w-full animate-pulse"></div>
+            </div>
           </div>
         </div>
       </div>
