@@ -44,14 +44,38 @@ export async function POST(req: Request) {
     } else {
       // Create new user
       if (!password) {
-        return NextResponse.json({ error: 'Password is required' }, { status: 400 });
+        return NextResponse.json({ error: 'Kata sandi wajib diisi' }, { status: 400 });
       }
-      userRecord = await adminAuth.createUser({
-        email: email,
-        password: password,
-        displayName: nama,
-      });
-      uid = userRecord.uid;
+      if (password.length < 6) {
+        return NextResponse.json({ error: 'Kata sandi minimal harus 6 karakter' }, { status: 400 });
+      }
+
+      try {
+        userRecord = await adminAuth.createUser({
+          email: email,
+          password: password,
+          displayName: nama,
+        });
+        uid = userRecord.uid;
+      } catch (authErr: any) {
+        if (authErr.code === 'auth/email-already-exists' || authErr.code === 'auth/email-already-in-use') {
+          // Check if employee already exists in Firestore
+          const existingUser = await adminAuth.getUserByEmail(email);
+          const empDoc = await adminDb.collection('employees').doc(existingUser.uid).get();
+          if (!empDoc.exists) {
+            // Orphaned Auth user without Firestore employee doc! Re-use this auth user!
+            uid = existingUser.uid;
+            await adminAuth.updateUser(uid, {
+              displayName: nama,
+              password: password,
+            });
+          } else {
+            return NextResponse.json({ error: 'Email ini sudah digunakan oleh akun karyawan lain. Silakan gunakan email lain.' }, { status: 400 });
+          }
+        } else {
+          throw authErr;
+        }
+      }
     }
 
     // Save Employee Data to Firestore (exclude password)
@@ -60,12 +84,12 @@ export async function POST(req: Request) {
       noInduk: noInduk || "",
       noWa: noWa || "",
       email,
-      posisi,
-      status,
-      lokasiId,
+      posisi: posisi || "",
+      status: status || "Aktif",
+      lokasiId: lokasiId || "all",
       shiftMasuk: shiftMasuk || "08:00",
       shiftKeluar: shiftKeluar || "17:00",
-      gajiPokok: Number(gajiPokok),
+      gajiPokok: Number(gajiPokok) || 0,
       bpjsTk: bpjsTk !== undefined ? Boolean(bpjsTk) : true,
       bpjsKes: bpjsKes !== undefined ? Boolean(bpjsKes) : true,
       updatedAt: new Date().toISOString(),
@@ -80,7 +104,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, uid, message: 'Employee saved successfully' });
   } catch (error: any) {
     console.error('Error saving employee:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    let errorMsg = error.message || 'Terjadi kesalahan pada server';
+    let statusCode = 500;
+
+    if (error.code === 'auth/email-already-exists' || error.code === 'auth/email-already-in-use') {
+      errorMsg = 'Email ini sudah terdaftar. Silakan gunakan email lain.';
+      statusCode = 400;
+    } else if (error.code === 'auth/invalid-email') {
+      errorMsg = 'Format email tidak valid.';
+      statusCode = 400;
+    } else if (error.code === 'auth/weak-password' || error.message?.includes('at least 6 characters')) {
+      errorMsg = 'Kata sandi minimal harus 6 karakter.';
+      statusCode = 400;
+    } else if (error.code === 'auth/invalid-password') {
+      errorMsg = 'Kata sandi tidak valid. Minimal 6 karakter.';
+      statusCode = 400;
+    }
+
+    return NextResponse.json({ error: errorMsg }, { status: statusCode });
   }
 }
 
