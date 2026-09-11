@@ -800,17 +800,17 @@ export default function AdminDesktopPage() {
                   <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2 flex items-center"><i className="fa-solid fa-address-card mr-2"></i> 1. Data Pribadi & Kontak</h4>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">No. Induk / KTP</label>
+                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Nama Lengkap</label>
                       <input 
-                        type="text" required value={formNoInduk} onChange={(e) => setFormNoInduk(e.target.value)}
-                        placeholder="Wajib diisi"
+                        type="text" required value={formNama} onChange={(e) => setFormNama(e.target.value)}
                         className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Nama Lengkap</label>
+                      <label className="block text-sm font-bold text-gray-700 mb-1.5">No. Induk / KTP</label>
                       <input 
-                        type="text" required value={formNama} onChange={(e) => setFormNama(e.target.value)}
+                        type="text" required value={formNoInduk} onChange={(e) => setFormNoInduk(e.target.value)}
+                        placeholder="Wajib diisi"
                         className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white"
                       />
                     </div>
