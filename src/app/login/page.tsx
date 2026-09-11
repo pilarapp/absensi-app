@@ -66,6 +66,7 @@ export default function LoginPage() {
       await signInWithEmailAndPassword(auth, email, password);
       // Simpan session dummy untuk UI
       localStorage.setItem("user_email", email);
+      localStorage.setItem("pilar_logged_in", "true");
       
       if (email.includes("admin")) {
         router.push("/admin");

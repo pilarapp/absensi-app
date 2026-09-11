@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { recordCheckIn, recordCheckOut, getTodayAttendance, getEmployee, getEmployeeAttendance, getEmployeeRequests } from '@/lib/db';
@@ -9,7 +10,9 @@ import NotificationBell from '@/components/NotificationBell';
 import Toast from '@/components/Toast';
 
 export default function EmployeeDashboard() {
+  const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [currentTime, setCurrentTime] = useState("");
   const [currentDate, setCurrentDate] = useState("");
   const [timeCheckin, setTimeCheckin] = useState("--:--");
@@ -35,17 +38,27 @@ export default function EmployeeDashboard() {
   useEffect(() => {
     let timer: NodeJS.Timeout;
     
+    // Cek awal sesi lokal sebelum menunggu Firebase (mencegah glitch/flash konten absensi)
+    const hasLocalSession = typeof window !== 'undefined' && (localStorage.getItem("user_email") || localStorage.getItem("pilar_logged_in"));
+    if (!hasLocalSession) {
+      router.replace('/login');
+      return;
+    }
+
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
         const emp = await getEmployee(user.uid);
         if (emp) {
           setCurrentUser(emp);
+          setIsAuthChecking(false);
           init(emp.id);
         } else {
-          window.location.href = '/login';
+          router.replace('/login');
         }
       } else {
-        window.location.href = '/login';
+        localStorage.removeItem("pilar_logged_in");
+        localStorage.removeItem("user_email");
+        router.replace('/login');
       }
     });
 
@@ -276,6 +289,30 @@ export default function EmployeeDashboard() {
       }
     );
   };
+
+  if (isAuthChecking) {
+    return (
+      <div className="mobile-container flex flex-col items-center justify-center text-pilar-textPrimary mx-auto shadow-2xl relative overflow-hidden bg-pilar-darker">
+        {/* Decorative Glow */}
+        <div className="absolute top-[-10%] left-[-20%] w-60 h-60 bg-pilar-gold/10 rounded-full blur-[70px] pointer-events-none"></div>
+        <div className="absolute bottom-[-10%] right-[-20%] w-60 h-60 bg-blue-600/10 rounded-full blur-[70px] pointer-events-none"></div>
+
+        <div className="flex flex-col items-center animate-fade-in z-10 px-6 text-center">
+          <div className="w-20 h-20 rounded-3xl overflow-hidden shadow-2xl border-2 border-pilar-gold/40 mb-4 bg-pilar-darker relative">
+            <img src="/icon-512.png" alt="PilarAPP" className="w-full h-full object-cover" />
+          </div>
+          <h1 className="text-2xl font-black text-white tracking-tight">
+            Pilar<span className="text-pilar-gold">APP</span>
+          </h1>
+          <p className="text-xs text-gray-400 mt-1 font-medium">PT. Pilar Sentra Solusi</p>
+          <div className="mt-8 flex items-center space-x-2 text-xs text-pilar-gold/80 font-bold">
+            <div className="w-4 h-4 border-2 border-pilar-gold/30 border-t-pilar-gold rounded-full animate-spin"></div>
+            <span>Memeriksa sesi...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mobile-container flex flex-col text-pilar-textPrimary mx-auto shadow-2xl relative overflow-hidden bg-pilar-dark">
