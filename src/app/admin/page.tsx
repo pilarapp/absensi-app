@@ -126,6 +126,95 @@ export default function AdminDesktopPage() {
   const [formBpjsTk, setFormBpjsTk] = useState(true);
   const [formBpjsKes, setFormBpjsKes] = useState(true);
   const [isSavingKaryawan, setIsSavingKaryawan] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [formTouched, setFormTouched] = useState<Record<string, boolean>>({});
+
+  const markTouched = (field: string) => {
+    setFormTouched(prev => ({ ...prev, [field]: true }));
+  };
+
+  const validation = useMemo(() => {
+    // 1. Nama
+    const isNamaValid = formNama.trim().length >= 2;
+    const namaError = formNama.trim().length === 0 
+      ? "Nama lengkap wajib diisi" 
+      : formNama.trim().length < 2 
+      ? "Nama lengkap minimal 2 karakter" 
+      : "";
+
+    // 2. No Induk
+    const isNoIndukValid = formNoInduk.trim().length >= 3;
+    const noIndukError = formNoInduk.trim().length === 0 
+      ? "No. Induk / KTP wajib diisi" 
+      : formNoInduk.trim().length < 3 
+      ? "No. Induk minimal 3 karakter" 
+      : "";
+
+    // 3. No WA
+    const cleanWa = formNoWa.replace(/[\s-]/g, "");
+    const isWaPattern = /^(08|\+628|628)[0-9]{8,13}$/.test(cleanWa);
+    const isWaValid = cleanWa.length === 0 || isWaPattern;
+    const waError = cleanWa.length > 0 && !isWaPattern
+      ? "Format nomor WhatsApp tidak valid (contoh: 081234567890)"
+      : "";
+
+    // 4. Email
+    const cleanEmail = formEmail.trim().toLowerCase();
+    const isEmailFormatValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail);
+    const isEmailDuplicate = Boolean(
+      cleanEmail &&
+      karyawanList.some(k => k.email.toLowerCase() === cleanEmail && k.id !== editingKaryawan?.id)
+    );
+    const emailError = !cleanEmail 
+      ? "Email akses wajib diisi" 
+      : !isEmailFormatValid 
+      ? "Format email tidak valid (contoh: nama@perusahaan.com)" 
+      : isEmailDuplicate 
+      ? "Email ini sudah digunakan oleh akun karyawan lain" 
+      : "";
+    const isEmailValid = cleanEmail.length > 0 && isEmailFormatValid && !isEmailDuplicate;
+
+    // 5. Password
+    let passwordError = "";
+    let isPasswordValid = true;
+    if (!editingKaryawan) {
+      if (!formPassword) {
+        passwordError = "Kata sandi wajib diisi untuk karyawan baru";
+        isPasswordValid = false;
+      } else if (formPassword.length < 6) {
+        passwordError = `Minimal 6 karakter (kurang ${6 - formPassword.length} karakter lagi)`;
+        isPasswordValid = false;
+      }
+    } else {
+      if (formPassword && formPassword !== "••••••••" && formPassword.length < 6) {
+        passwordError = `Minimal 6 karakter (kurang ${6 - formPassword.length} karakter lagi)`;
+        isPasswordValid = false;
+      }
+    }
+
+    // 6. Posisi
+    const isPosisiValid = formPosisi.trim().length > 0;
+    const posisiError = !isPosisiValid ? "Posisi / jabatan wajib diisi" : "";
+
+    const isFormValid = isNamaValid && isNoIndukValid && isWaValid && isEmailValid && isPasswordValid && isPosisiValid;
+
+    return {
+      isNamaValid,
+      namaError,
+      isNoIndukValid,
+      noIndukError,
+      isWaValid,
+      waError,
+      isEmailValid,
+      isEmailDuplicate,
+      emailError,
+      isPasswordValid,
+      passwordError,
+      isPosisiValid,
+      posisiError,
+      isFormValid
+    };
+  }, [formNama, formNoInduk, formNoWa, formEmail, formPassword, formPosisi, karyawanList, editingKaryawan]);
   
   // Laporan & Keuangan & Payroll State
   const [riwayatLaporan, setRiwayatLaporan] = useState<any[]>([]);
@@ -489,6 +578,8 @@ export default function AdminDesktopPage() {
     setFormGajiPokok("0");
     setFormBpjsTk(true);
     setFormBpjsKes(true);
+    setFormTouched({});
+    setShowPassword(false);
     setIsModalOpen(true);
   };
 
@@ -507,6 +598,8 @@ export default function AdminDesktopPage() {
     setFormGajiPokok(k.gajiPokok ? k.gajiPokok.toString() : "0");
     setFormBpjsTk(k.bpjsTk !== undefined ? k.bpjsTk : true);
     setFormBpjsKes(k.bpjsKes !== undefined ? k.bpjsKes : true);
+    setFormTouched({});
+    setShowPassword(false);
     setIsModalOpen(true);
   };
 
@@ -532,11 +625,23 @@ export default function AdminDesktopPage() {
   };
 
   const handleSaveKaryawan = async () => {
-    if (!formNama || !formEmail || !formPosisi) return showToast("Semua field wajib diisi.");
-    if (!editingKaryawan && !formPassword) return showToast("Password wajib diisi untuk karyawan baru.");
-    if (!editingKaryawan && formPassword.length < 6) return showToast("Kata sandi minimal harus 6 karakter.");
-    if (editingKaryawan && formPassword && formPassword !== "••••••••" && formPassword.length < 6) {
-      return showToast("Kata sandi minimal harus 6 karakter.");
+    setFormTouched({
+      nama: true,
+      noInduk: true,
+      noWa: true,
+      email: true,
+      password: true,
+      posisi: true
+    });
+
+    if (!validation.isFormValid) {
+      if (validation.namaError) return showToast(validation.namaError);
+      if (validation.noIndukError) return showToast(validation.noIndukError);
+      if (validation.waError) return showToast(validation.waError);
+      if (validation.emailError) return showToast(validation.emailError);
+      if (validation.passwordError) return showToast(validation.passwordError);
+      if (validation.posisiError) return showToast(validation.posisiError);
+      return showToast("Harap periksa kembali isian formulir.");
     }
 
     setIsSavingKaryawan(true);
@@ -824,27 +929,133 @@ export default function AdminDesktopPage() {
                   <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2 flex items-center"><i className="fa-solid fa-address-card mr-2"></i> 1. Data Pribadi & Kontak</h4>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Nama Lengkap</label>
-                      <input 
-                        type="text" required value={formNama} onChange={(e) => setFormNama(e.target.value)}
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white"
-                      />
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="block text-sm font-bold text-gray-700">Nama Lengkap</label>
+                        {formTouched.nama && formNama && (
+                          <span className={`text-[11px] font-semibold flex items-center gap-1 ${validation.isNamaValid ? 'text-emerald-600' : 'text-red-500'}`}>
+                            <i className={`fa-solid ${validation.isNamaValid ? 'fa-check' : 'fa-xmark'}`}></i>
+                            {validation.isNamaValid ? 'Valid' : 'Wajib diisi'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <input 
+                          type="text" required value={formNama} 
+                          onChange={(e) => { setFormNama(e.target.value); markTouched("nama"); }}
+                          onBlur={() => markTouched("nama")}
+                          placeholder="Masukkan nama lengkap"
+                          className={`w-full border rounded-xl px-4 py-3 pr-10 focus:outline-none shadow-sm transition-all text-sm ${
+                            formTouched.nama && !validation.isNamaValid
+                              ? "border-red-400 bg-red-50/20 text-red-900 focus:border-red-500 focus:ring-1 focus:ring-red-500"
+                              : formTouched.nama && validation.isNamaValid
+                              ? "border-emerald-400 bg-emerald-50/10 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                              : "border-gray-200 bg-gray-50/50 focus:bg-white focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker"
+                          }`}
+                        />
+                        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                          {formTouched.nama && (
+                            validation.isNamaValid ? (
+                              <i className="fa-solid fa-circle-check text-emerald-500 text-sm"></i>
+                            ) : (
+                              <i className="fa-solid fa-circle-exclamation text-red-500 text-sm"></i>
+                            )
+                          )}
+                        </div>
+                      </div>
+                      {formTouched.nama && validation.namaError && (
+                        <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1.5 font-medium animate-in fade-in duration-200">
+                          <i className="fa-solid fa-triangle-exclamation text-[11px] shrink-0"></i>
+                          <span>{validation.namaError}</span>
+                        </p>
+                      )}
                     </div>
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">No. Induk / KTP</label>
-                      <input 
-                        type="text" required value={formNoInduk} onChange={(e) => setFormNoInduk(e.target.value)}
-                        placeholder="Wajib diisi"
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white"
-                      />
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="block text-sm font-bold text-gray-700">No. Induk / KTP</label>
+                        {formTouched.noInduk && formNoInduk && (
+                          <span className={`text-[11px] font-semibold flex items-center gap-1 ${validation.isNoIndukValid ? 'text-emerald-600' : 'text-red-500'}`}>
+                            <i className={`fa-solid ${validation.isNoIndukValid ? 'fa-check' : 'fa-xmark'}`}></i>
+                            {validation.isNoIndukValid ? 'Valid' : 'Wajib diisi'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <input 
+                          type="text" required value={formNoInduk} 
+                          onChange={(e) => { setFormNoInduk(e.target.value); markTouched("noInduk"); }}
+                          onBlur={() => markTouched("noInduk")}
+                          placeholder="Nomor KTP atau Induk Karyawan"
+                          className={`w-full border rounded-xl px-4 py-3 pr-10 focus:outline-none shadow-sm transition-all text-sm ${
+                            formTouched.noInduk && !validation.isNoIndukValid
+                              ? "border-red-400 bg-red-50/20 text-red-900 focus:border-red-500 focus:ring-1 focus:ring-red-500"
+                              : formTouched.noInduk && validation.isNoIndukValid
+                              ? "border-emerald-400 bg-emerald-50/10 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                              : "border-gray-200 bg-gray-50/50 focus:bg-white focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker"
+                          }`}
+                        />
+                        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                          {formTouched.noInduk && (
+                            validation.isNoIndukValid ? (
+                              <i className="fa-solid fa-circle-check text-emerald-500 text-sm"></i>
+                            ) : (
+                              <i className="fa-solid fa-circle-exclamation text-red-500 text-sm"></i>
+                            )
+                          )}
+                        </div>
+                      </div>
+                      {formTouched.noInduk && validation.noIndukError && (
+                        <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1.5 font-medium animate-in fade-in duration-200">
+                          <i className="fa-solid fa-triangle-exclamation text-[11px] shrink-0"></i>
+                          <span>{validation.noIndukError}</span>
+                        </p>
+                      )}
                     </div>
                     <div className="col-span-2">
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">No. Whatsapp (WA)</label>
-                      <input 
-                        type="text" required value={formNoWa} onChange={(e) => setFormNoWa(e.target.value)}
-                        placeholder="Contoh: 08123456789"
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white"
-                      />
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="block text-sm font-bold text-gray-700">No. Whatsapp (WA)</label>
+                        {formTouched.noWa && formNoWa && (
+                          <span className={`text-[11px] font-semibold flex items-center gap-1 ${validation.isWaValid ? 'text-emerald-600' : 'text-red-500'}`}>
+                            <i className={`fa-solid ${validation.isWaValid ? 'fa-check' : 'fa-xmark'}`}></i>
+                            {validation.isWaValid ? 'Format Sesuai' : 'Format Salah'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <input 
+                          type="tel" value={formNoWa} 
+                          onChange={(e) => { setFormNoWa(e.target.value); markTouched("noWa"); }}
+                          onBlur={() => markTouched("noWa")}
+                          placeholder="Contoh: 08123456789"
+                          className={`w-full border rounded-xl px-4 py-3 pr-10 focus:outline-none shadow-sm transition-all text-sm ${
+                            formTouched.noWa && formNoWa && !validation.isWaValid
+                              ? "border-red-400 bg-red-50/20 text-red-900 focus:border-red-500 focus:ring-1 focus:ring-red-500"
+                              : formTouched.noWa && formNoWa && validation.isWaValid
+                              ? "border-emerald-400 bg-emerald-50/10 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                              : "border-gray-200 bg-gray-50/50 focus:bg-white focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker"
+                          }`}
+                        />
+                        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                          {formTouched.noWa && formNoWa && (
+                            validation.isWaValid ? (
+                              <i className="fa-solid fa-circle-check text-emerald-500 text-sm"></i>
+                            ) : (
+                              <i className="fa-solid fa-circle-exclamation text-red-500 text-sm"></i>
+                            )
+                          )}
+                        </div>
+                      </div>
+                      {formTouched.noWa && validation.waError && (
+                        <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1.5 font-medium animate-in fade-in duration-200">
+                          <i className="fa-solid fa-triangle-exclamation text-[11px] shrink-0"></i>
+                          <span>{validation.waError}</span>
+                        </p>
+                      )}
+                      {formTouched.noWa && formNoWa && validation.isWaValid && (
+                        <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1.5 font-medium animate-in fade-in duration-200">
+                          <i className="fa-solid fa-check text-[11px] shrink-0"></i>
+                          <span>Nomor WhatsApp valid untuk notifikasi</span>
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -854,20 +1065,112 @@ export default function AdminDesktopPage() {
                   <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2 flex items-center"><i className="fa-solid fa-shield-halved mr-2"></i> 2. Akun & Keamanan</h4>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Email Akses</label>
-                      <input 
-                        type="email" required value={formEmail} onChange={(e) => setFormEmail(e.target.value)} autoComplete="off"
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white"
-                      />
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="block text-sm font-bold text-gray-700">Email Akses</label>
+                        {formTouched.email && formEmail && (
+                          <span className={`text-[11px] font-semibold flex items-center gap-1 ${validation.isEmailValid ? 'text-emerald-600' : 'text-red-500'}`}>
+                            <i className={`fa-solid ${validation.isEmailValid ? 'fa-check' : 'fa-xmark'}`}></i>
+                            {validation.isEmailValid ? 'Tersedia' : validation.isEmailDuplicate ? 'Sudah Terdaftar' : 'Tidak Valid'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <input 
+                          type="email" required value={formEmail} 
+                          onChange={(e) => { setFormEmail(e.target.value); markTouched("email"); }}
+                          onBlur={() => markTouched("email")}
+                          autoComplete="off"
+                          placeholder="nama@perusahaan.com"
+                          className={`w-full border rounded-xl px-4 py-3 pr-10 focus:outline-none shadow-sm transition-all text-sm ${
+                            formTouched.email && !validation.isEmailValid
+                              ? "border-red-400 bg-red-50/20 text-red-900 focus:border-red-500 focus:ring-1 focus:ring-red-500"
+                              : formTouched.email && validation.isEmailValid
+                              ? "border-emerald-400 bg-emerald-50/10 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                              : "border-gray-200 bg-gray-50/50 focus:bg-white focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker"
+                          }`}
+                        />
+                        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                          {formTouched.email && formEmail && (
+                            validation.isEmailValid ? (
+                              <i className="fa-solid fa-circle-check text-emerald-500 text-sm"></i>
+                            ) : (
+                              <i className="fa-solid fa-circle-exclamation text-red-500 text-sm"></i>
+                            )
+                          )}
+                        </div>
+                      </div>
+                      {formTouched.email && validation.emailError && (
+                        <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1.5 font-medium animate-in fade-in duration-200">
+                          <i className="fa-solid fa-triangle-exclamation text-[11px] shrink-0"></i>
+                          <span>{validation.emailError}</span>
+                        </p>
+                      )}
+                      {formTouched.email && validation.isEmailValid && (
+                        <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1.5 font-medium animate-in fade-in duration-200">
+                          <i className="fa-solid fa-check text-[11px] shrink-0"></i>
+                          <span>Email valid dan siap digunakan</span>
+                        </p>
+                      )}
                     </div>
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Kata Sandi (Password)</label>
-                      <input 
-                        type="password" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} autoComplete="new-password"
-                        minLength={6}
-                        placeholder={editingKaryawan ? "Ketik untuk mengubah sandi" : "Minimal 6 karakter"}
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white"
-                      />
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="block text-sm font-bold text-gray-700">Kata Sandi (Password)</label>
+                        {!editingKaryawan && formPassword && (
+                          <span className={`text-[11px] font-semibold flex items-center gap-1 ${validation.isPasswordValid ? 'text-emerald-600' : 'text-amber-600'}`}>
+                            {formPassword.length}/6 karakter
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <input 
+                          type={showPassword ? "text" : "password"} 
+                          value={formPassword} 
+                          onChange={(e) => { setFormPassword(e.target.value); markTouched("password"); }}
+                          onBlur={() => markTouched("password")}
+                          autoComplete="new-password"
+                          minLength={6}
+                          placeholder={editingKaryawan ? "Ketik untuk mengubah sandi" : "Minimal 6 karakter"}
+                          className={`w-full border rounded-xl px-4 py-3 pr-20 focus:outline-none shadow-sm transition-all text-sm ${
+                            formTouched.password && !validation.isPasswordValid
+                              ? "border-amber-400 bg-amber-50/20 text-amber-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                              : formTouched.password && formPassword && validation.isPasswordValid
+                              ? "border-emerald-400 bg-emerald-50/10 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                              : "border-gray-200 bg-gray-50/50 focus:bg-white focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker"
+                          }`}
+                        />
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center space-x-2">
+                          {formTouched.password && formPassword && (
+                            validation.isPasswordValid ? (
+                              <i className="fa-solid fa-circle-check text-emerald-500 text-sm"></i>
+                            ) : (
+                              <i className="fa-solid fa-circle-exclamation text-amber-500 text-sm"></i>
+                            )
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="text-gray-400 hover:text-gray-600 p-1 focus:outline-none transition-colors"
+                            title={showPassword ? "Sembunyikan sandi" : "Lihat sandi"}
+                          >
+                            <i className={`fa-solid ${showPassword ? 'fa-eye-slash' : 'fa-eye'} text-sm`}></i>
+                          </button>
+                        </div>
+                      </div>
+                      {formTouched.password && validation.passwordError && (
+                        <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1.5 font-medium animate-in fade-in duration-200">
+                          <i className="fa-solid fa-circle-info text-[11px] shrink-0 text-amber-500"></i>
+                          <span>{validation.passwordError}</span>
+                        </p>
+                      )}
+                      {formTouched.password && formPassword && validation.isPasswordValid && (
+                        <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1.5 font-medium animate-in fade-in duration-200">
+                          <i className="fa-solid fa-check text-[11px] shrink-0"></i>
+                          <span>Kata sandi memenuhi syarat</span>
+                        </p>
+                      )}
+                      {editingKaryawan && !formPassword && (
+                        <p className="text-[11px] text-gray-400 mt-1">Kosongkan jika tidak ingin mengubah kata sandi akun</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -877,11 +1180,45 @@ export default function AdminDesktopPage() {
                   <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2 flex items-center"><i className="fa-solid fa-briefcase mr-2"></i> 3. Informasi Pekerjaan</h4>
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Posisi / Jabatan</label>
-                      <input 
-                        type="text" required value={formPosisi} onChange={(e) => setFormPosisi(e.target.value)}
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white"
-                      />
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="block text-sm font-bold text-gray-700">Posisi / Jabatan</label>
+                        {formTouched.posisi && formPosisi && (
+                          <span className={`text-[11px] font-semibold flex items-center gap-1 ${validation.isPosisiValid ? 'text-emerald-600' : 'text-red-500'}`}>
+                            <i className={`fa-solid ${validation.isPosisiValid ? 'fa-check' : 'fa-xmark'}`}></i>
+                            {validation.isPosisiValid ? 'Valid' : 'Wajib diisi'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <input 
+                          type="text" required value={formPosisi} 
+                          onChange={(e) => { setFormPosisi(e.target.value); markTouched("posisi"); }}
+                          onBlur={() => markTouched("posisi")}
+                          placeholder="Contoh: Staff IT, Finance, HR"
+                          className={`w-full border rounded-xl px-4 py-3 pr-10 focus:outline-none shadow-sm transition-all text-sm ${
+                            formTouched.posisi && !validation.isPosisiValid
+                              ? "border-red-400 bg-red-50/20 text-red-900 focus:border-red-500 focus:ring-1 focus:ring-red-500"
+                              : formTouched.posisi && validation.isPosisiValid
+                              ? "border-emerald-400 bg-emerald-50/10 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                              : "border-gray-200 bg-gray-50/50 focus:bg-white focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker"
+                          }`}
+                        />
+                        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                          {formTouched.posisi && (
+                            validation.isPosisiValid ? (
+                              <i className="fa-solid fa-circle-check text-emerald-500 text-sm"></i>
+                            ) : (
+                              <i className="fa-solid fa-circle-exclamation text-red-500 text-sm"></i>
+                            )
+                          )}
+                        </div>
+                      </div>
+                      {formTouched.posisi && validation.posisiError && (
+                        <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1.5 font-medium animate-in fade-in duration-200">
+                          <i className="fa-solid fa-triangle-exclamation text-[11px] shrink-0"></i>
+                          <span>{validation.posisiError}</span>
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Status</label>
