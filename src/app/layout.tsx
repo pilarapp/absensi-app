@@ -26,7 +26,11 @@ export const metadata: Metadata = {
     title: "PilarAPP",
   },
   icons: {
-    icon: "/icon-512.png",
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
     apple: "/icon-512.png",
   },
 };
@@ -39,6 +43,9 @@ export default function RootLayout({
   return (
     <html lang="id">
       <head>
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="icon" href="/icon-512.png" type="image/png" sizes="512x512" />
+        <link rel="shortcut icon" href="/favicon.ico" />
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/icon-512.png" />
         <meta name="theme-color" content="#00142f" />
