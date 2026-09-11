@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Absen Pilar",
+    title: "PilarAPP",
   },
   icons: {
     icon: "/icon-512.png",
@@ -43,7 +43,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icon-512.png" />
         <meta name="theme-color" content="#00142f" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-title" content="Absen Pilar" />
+        <meta name="apple-mobile-web-app-title" content="PilarAPP" />
         <link
           rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"

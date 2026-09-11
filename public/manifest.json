@@ -1,6 +1,6 @@
 {
-  "name": "Absensi - PT. Pilar Sentra Solusi",
-  "short_name": "Absen Pilar",
+  "name": "PilarAPP",
+  "short_name": "PilarAPP",
   "description": "Aplikasi Absensi Karyawan PT. Pilar Sentra Solusi",
   "start_url": "/",
   "display": "standalone",
