@@ -63,18 +63,35 @@ export default function AdminLoginPage() {
     }
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // Simpan session admin (bisa diganti JWT jika menggunakan Middleware backend)
-      localStorage.setItem("admin_email", email);
-      
-      if (email.includes("admin")) {
-        router.push("/admin");
-      } else {
-        // Logout langsung jika bukan admin
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const idToken = await userCredential.user.getIdToken();
+
+      // Verifikasi peran melalui server endpoint
+      const res = await fetch('/api/auth/verify-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      });
+
+      const roleData = await res.json();
+
+      if (!roleData.isAdmin) {
         await auth.signOut();
-        setError("Kredensial Admin tidak valid.");
+        localStorage.removeItem("admin_email");
+        setError("Akses Ditolak: Akun Anda bukan Administrator.");
         setIsLoading(false);
+        return;
       }
+
+      // Set cookie session admin untuk Next.js Middleware
+      await fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'admin' }),
+      });
+
+      localStorage.setItem("admin_email", email);
+      router.push("/admin");
     } catch (err: any) {
       if (err.code === "auth/invalid-credential" || err.code === "auth/user-not-found" || err.code === "auth/wrong-password") {
         setError("Email atau kata sandi salah.");

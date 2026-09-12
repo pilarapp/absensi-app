@@ -8,7 +8,9 @@ import * as XLSX from "xlsx";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import dynamic from "next/dynamic";
 import CustomSelect from "@/components/CustomSelect";
-import { subscribeToRequests, updateRequestStatus, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, subscribeToNotifications, addNotification, paySalary } from "@/lib/db";
+import { subscribeToRequests, updateRequestStatus, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs } from "@/lib/db";
+import { auth } from "@/lib/firebase";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 
 const MapSelector = dynamic(() => import("../../components/MapSelector"), { 
   ssr: false,
@@ -116,6 +118,12 @@ export default function AdminDesktopPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const router = useRouter();
+  const [currentAdminEmail, setCurrentAdminEmail] = useState<string>("admin@pt-pilar.co.id");
+  const [currentAdminName, setCurrentAdminName] = useState<string>("Administrator");
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [auditSearch, setAuditSearch] = useState<string>("");
+  const [auditFilterAction, setAuditFilterAction] = useState<string>("all");
+  const [pengaturanSubTab, setPengaturanSubTab] = useState<"lokasi" | "audit">("lokasi");
 
   useEffect(() => {
     setIsMounted(true);
@@ -123,7 +131,44 @@ export default function AdminDesktopPage() {
     if (savedMenu) {
       setActiveMenuState(savedMenu);
     }
+
+    if (auth) {
+      const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+        if (!user) {
+          const localAdmin = typeof window !== 'undefined' ? localStorage.getItem("admin_email") : null;
+          if (!localAdmin) {
+            router.replace("/admin/login");
+          }
+        } else {
+          const email = user.email || "";
+          setCurrentAdminEmail(email);
+          setCurrentAdminName(user.displayName || email.split("@")[0] || "Administrator");
+        }
+      });
+      return () => unsubscribeAuth();
+    }
   }, []);
+
+  useEffect(() => {
+    const unsubAudit = subscribeToAuditLogs((logs) => {
+      setAuditLogs(logs);
+    });
+    return () => unsubAudit();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/session', { method: 'DELETE' });
+    } catch {}
+    localStorage.removeItem("admin_email");
+    localStorage.removeItem("pilar_admin_menu");
+    if (auth) {
+      try {
+        await signOut(auth);
+      } catch {}
+    }
+    router.push("/admin/login");
+  };
 
   const setActiveMenu = (menu: string) => {
     setActiveMenuState(menu);
@@ -421,6 +466,13 @@ export default function AdminDesktopPage() {
       });
       if (success) {
         showToast("Lokasi berhasil diperbarui!");
+        logAdminActivity({
+          adminEmail: currentAdminEmail,
+          adminName: currentAdminName,
+          action: "MANAJEMEN_LOKASI",
+          target: formLokasiNama,
+          details: `Memperbarui koordinat/radius cabang ${formLokasiNama} (${officeRadius} meter)`
+        });
       } else {
         showToast("Gagal memperbarui lokasi.");
       }
@@ -434,6 +486,13 @@ export default function AdminDesktopPage() {
       });
       if (success) {
         showToast("Lokasi baru berhasil ditambahkan!");
+        logAdminActivity({
+          adminEmail: currentAdminEmail,
+          adminName: currentAdminName,
+          action: "MANAJEMEN_LOKASI",
+          target: formLokasiNama,
+          details: `Menambahkan cabang baru ${formLokasiNama} dengan radius ${officeRadius} meter`
+        });
       } else {
         showToast("Gagal menambahkan lokasi.");
       }
@@ -445,6 +504,7 @@ export default function AdminDesktopPage() {
   };
 
   const handleDeleteLocation = (id: string) => {
+    const locToDelete = locations.find(l => l.id === id);
     setConfirmModal({
       isOpen: true,
       message: "Apakah Anda yakin ingin menghapus lokasi ini?",
@@ -452,6 +512,13 @@ export default function AdminDesktopPage() {
         const success = await deleteLocation(id);
         if (success) {
           showToast("Lokasi dihapus.");
+          logAdminActivity({
+            adminEmail: currentAdminEmail,
+            adminName: currentAdminName,
+            action: "MANAJEMEN_LOKASI",
+            target: locToDelete?.nama || id,
+            details: `Menghapus cabang kantor ${locToDelete?.nama || id}`
+          });
         } else {
           showToast("Gagal menghapus lokasi.");
         }
@@ -491,6 +558,13 @@ export default function AdminDesktopPage() {
     if (req && req.karyawanId) {
       addNotification(req.karyawanId, "Pengajuan Disetujui", "Hore! Pengajuan Anda telah DISETUJUI oleh HRD.", "success");
     }
+    logAdminActivity({
+      adminEmail: currentAdminEmail,
+      adminName: currentAdminName,
+      action: "SETUJUI_PENGAJUAN",
+      target: req?.namaKaryawan || id,
+      details: `Menyetujui permohonan ${req?.type || 'Izin/Cuti'} untuk ${req?.namaKaryawan || id}`
+    });
   };
 
   const openRejectModal = (id: string) => {
@@ -510,6 +584,13 @@ export default function AdminDesktopPage() {
     if (req) {
       addNotification(req.karyawanId, "Revisi Pengajuan", `Pengajuan Anda memerlukan REVISI: ${rejectReason}`, "warning");
     }
+    logAdminActivity({
+      adminEmail: currentAdminEmail,
+      adminName: currentAdminName,
+      action: "TOLAK_PENGAJUAN",
+      target: req?.namaKaryawan || rejectId,
+      details: `Mengembalikan permohonan ${req?.type || 'Izin/Cuti'} dengan catatan: "${rejectReason}"`
+    });
   };
 
   const handleExportExcel = (karyawanToExport?: Karyawan | null) => {
@@ -619,6 +700,7 @@ export default function AdminDesktopPage() {
   };
 
   const handleDeleteKaryawan = (id: string) => {
+    const empToDelete = karyawanList.find(k => k.id === id);
     setConfirmModal({
       isOpen: true,
       message: "Apakah Anda yakin ingin menghapus karyawan ini?",
@@ -627,6 +709,13 @@ export default function AdminDesktopPage() {
           const res = await fetch(`/api/auth/karyawan?uid=${id}`, { method: 'DELETE' });
           if (res.ok) {
             showToast("Karyawan berhasil dihapus.");
+            logAdminActivity({
+              adminEmail: currentAdminEmail,
+              adminName: currentAdminName,
+              action: "HAPUS_KARYAWAN",
+              target: empToDelete?.nama || id,
+              details: `Menghapus akun karyawan ${empToDelete?.nama || id} (${empToDelete?.posisi || '-'})`
+            });
           } else {
             const data = await res.json();
             showToast("Gagal: " + (data.error || 'Unknown error'));
@@ -692,6 +781,15 @@ export default function AdminDesktopPage() {
 
       if (res.ok && data?.success) {
         showToast(editingKaryawan ? "Data karyawan berhasil diperbarui!" : "Karyawan baru berhasil ditambahkan!");
+        logAdminActivity({
+          adminEmail: currentAdminEmail,
+          adminName: currentAdminName,
+          action: editingKaryawan ? "UPDATE_KARYAWAN" : "TAMBAH_KARYAWAN",
+          target: formNama,
+          details: editingKaryawan 
+            ? `Memperbarui data karyawan ${formNama} (${formPosisi})`
+            : `Menambahkan karyawan baru ${formNama} (${formPosisi}) - Gaji Pokok Rp ${parseInt(formGajiPokok || "0").toLocaleString('id-ID')}`
+        });
         setIsModalOpen(false);
       } else {
         showToast(data?.error || `Gagal menyimpan: Terjadi kesalahan (Status ${res.status})`);
@@ -787,10 +885,53 @@ export default function AdminDesktopPage() {
           msg: `Hore! Gaji bulan ini sebesar Rp ${new Intl.NumberFormat('id-ID').format(nominal)} telah masuk ke rekening Anda!`
         }));
 
+        logAdminActivity({
+          adminEmail: currentAdminEmail,
+          adminName: currentAdminName,
+          action: "BAYAR_GAJI",
+          target: nama,
+          details: `Pencairan gaji bersih Rp ${new Intl.NumberFormat('id-ID').format(nominal)} (Pokok Rp ${new Intl.NumberFormat('id-ID').format(gajiPokok)}, Potongan Rp ${new Intl.NumberFormat('id-ID').format(totalPotongan)})`
+        });
+
         showToast(`Gaji ${nama} berhasil dibayarkan!`);
         setConfirmModal(null);
       }
     });
+  };
+
+  const filteredAuditLogs = useMemo(() => {
+    return auditLogs.filter(log => {
+      const matchAction = auditFilterAction === "all" || log.action === auditFilterAction;
+      const searchLower = auditSearch.toLowerCase();
+      const matchSearch = !auditSearch || 
+        (log.adminEmail || "").toLowerCase().includes(searchLower) ||
+        (log.adminName || "").toLowerCase().includes(searchLower) ||
+        (log.target || "").toLowerCase().includes(searchLower) ||
+        (log.details || "").toLowerCase().includes(searchLower) ||
+        (log.action || "").toLowerCase().includes(searchLower);
+      return matchAction && matchSearch;
+    });
+  }, [auditLogs, auditSearch, auditFilterAction]);
+
+  const getActionBadge = (action: string) => {
+    switch(action) {
+      case "TAMBAH_KARYAWAN":
+        return <span className="px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200"><i className="fa-solid fa-user-plus mr-1"></i> Tambah Karyawan</span>;
+      case "UPDATE_KARYAWAN":
+        return <span className="px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200"><i className="fa-solid fa-user-pen mr-1"></i> Update Karyawan</span>;
+      case "HAPUS_KARYAWAN":
+        return <span className="px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider bg-red-50 text-red-700 border border-red-200"><i className="fa-solid fa-user-minus mr-1"></i> Hapus Karyawan</span>;
+      case "SETUJUI_PENGAJUAN":
+        return <span className="px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider bg-teal-50 text-teal-700 border border-teal-200"><i className="fa-solid fa-check-double mr-1"></i> Setujui Pengajuan</span>;
+      case "TOLAK_PENGAJUAN":
+        return <span className="px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200"><i className="fa-solid fa-rotate-left mr-1"></i> Revisi/Tolak</span>;
+      case "BAYAR_GAJI":
+        return <span className="px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200"><i className="fa-solid fa-money-bill-transfer mr-1"></i> Pencairan Gaji</span>;
+      case "MANAJEMEN_LOKASI":
+        return <span className="px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200"><i className="fa-solid fa-map-pin mr-1"></i> Kelola Lokasi</span>;
+      default:
+        return <span className="px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider bg-gray-50 text-gray-700 border border-gray-200">{action}</span>;
+    }
   };
 
   const matrixLaporan = useMemo(() => {
@@ -1514,7 +1655,7 @@ export default function AdminDesktopPage() {
         </nav>
 
         <div className="p-4 border-t border-white/10">
-          <button onClick={() => router.push("/admin/login")} className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors">
+          <button onClick={handleLogout} className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors">
             <i className="fa-solid fa-sign-out-alt w-5"></i>
             <span>Keluar</span>
           </button>
@@ -2546,109 +2687,271 @@ export default function AdminDesktopPage() {
 
           {/* PENGATURAN TAB */}
           {activeMenu === "pengaturan" && (
-            <div className="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 overflow-hidden animate-slide-up">
-              <div className="p-8 border-b border-gray-100 flex flex-col md:flex-row md:justify-between md:items-center bg-gray-50/50 space-y-4 md:space-y-0">
-                <div>
-                  <h3 className="font-extrabold text-gray-800 text-xl tracking-tight">Konfigurasi Titik Lokasi Absensi (GPS)</h3>
-                  <p className="text-sm text-gray-500 mt-1">Atur berbagai cabang perusahaan dan radius toleransi absensi.</p>
-                </div>
-                <button 
-                  onClick={() => {
-                    setEditingLocationId(null);
-                    setFormLokasiNama("");
-                    setOfficeLat("-6.200000");
-                    setOfficeLng("106.816666");
-                    setOfficeRadius("50");
-                    setIsLocationModalOpen(true);
-                  }}
-                  className="w-full md:w-auto bg-pilar-darker hover:bg-black text-pilar-gold font-bold px-6 py-2.5 rounded-xl shadow-md hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20 transition-all flex items-center justify-center"
+            <div className="space-y-6 animate-slide-up">
+              {/* Sub-tab Navigation */}
+              <div className="bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 flex items-center space-x-2 max-w-md">
+                <button
+                  type="button"
+                  onClick={() => setPengaturanSubTab("lokasi")}
+                  className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center space-x-2 ${
+                    pengaturanSubTab === "lokasi"
+                      ? "bg-pilar-darker text-pilar-gold shadow-md"
+                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
                 >
-                  <span>Tambah Lokasi</span>
+                  <i className="fa-solid fa-map-location-dot"></i>
+                  <span>Titik Lokasi & GPS</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPengaturanSubTab("audit")}
+                  className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center space-x-2 ${
+                    pengaturanSubTab === "audit"
+                      ? "bg-pilar-darker text-pilar-gold shadow-md"
+                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
+                >
+                  <i className="fa-solid fa-shield-halved"></i>
+                  <span>Log Aktivitas Admin</span>
+                  {auditLogs.length > 0 && (
+                    <span className="ml-1 px-2 py-0.5 text-[10px] bg-pilar-gold text-pilar-darker rounded-full font-black">
+                      {auditLogs.length}
+                    </span>
+                  )}
                 </button>
               </div>
-              
-              <div className="p-8 bg-gray-50/30 min-h-[500px]">
-                <div className="overflow-x-auto -mt-2">
-                  <table className="w-full text-left text-sm whitespace-nowrap border-separate" style={{borderSpacing: "0 16px"}}>
-                    <thead>
-                      <tr className="text-gray-500 font-semibold">
-                        <th className="px-6 py-2 font-medium">Nama Cabang / Lokasi</th>
-                        <th className="px-6 py-2 font-medium">Koordinat (Lat, Lng)</th>
-                        <th className="px-6 py-2 font-medium text-center">Radius Toleransi</th>
-                        <th className="px-6 py-2 font-medium text-center">Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {locations.map(loc => (
-                        <tr key={loc.id} className="group transition-all duration-300 hover:-translate-y-1 relative z-10">
-                          <td className="px-6 py-5 bg-white rounded-l-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-l border-gray-100 group-hover:border-pilar-gold/40 transition-all">
-                            <div className="flex items-center space-x-4">
-                              <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center text-xl text-pilar-darker border border-gray-100 shadow-inner group-hover:bg-pilar-darker group-hover:text-pilar-gold transition-colors">
-                                <i className="fa-solid fa-building"></i>
-                              </div>
-                              <div className="font-extrabold text-gray-800 text-base group-hover:text-pilar-darker transition-colors">{loc.nama}</div>
-                            </div>
-                          </td>
-                          
-                          <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-gray-600">
-                            <span className="flex items-center"><i className="fa-solid fa-location-dot text-gray-400 mr-2"></i> <span className="font-mono">{loc.lat}, {loc.lng}</span></span>
-                          </td>
-                          
-                          <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-center">
-                            <span className="inline-flex items-center justify-center px-4 py-1.5 rounded-full text-xs font-bold bg-gray-50 text-gray-600 border border-gray-200">
-                              <i className="fa-solid fa-circle-notch text-pilar-gold mr-1.5"></i> {loc.radius} m
-                            </span>
-                          </td>
-                          
-                          <td className="px-6 py-5 bg-white rounded-r-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-r border-gray-100 group-hover:border-pilar-gold/40 transition-all">
-                            <div className="flex justify-center space-x-2">
-                              <button 
-                                onClick={() => {
-                                  setEditingLocationId(loc.id);
-                                  setFormLokasiNama(loc.nama);
-                                  setOfficeLat(loc.lat.toString());
-                                  setOfficeLng(loc.lng.toString());
-                                  setOfficeRadius(loc.radius.toString());
-                                  setIsLocationModalOpen(true);
-                                }}
-                                className="w-9 h-9 rounded-xl bg-gray-50 text-gray-500 hover:text-pilar-darker hover:bg-white border border-gray-100 hover:border-gray-200 shadow-sm flex items-center justify-center transition-all"
-                              >
-                                <i className="fa-solid fa-pen text-sm"></i>
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteLocation(loc.id)}
-                                className="w-9 h-9 rounded-xl bg-gray-50 text-gray-500 hover:text-red-500 hover:bg-white border border-gray-100 hover:border-gray-200 shadow-sm flex items-center justify-center transition-all"
-                              >
-                                <i className="fa-solid fa-trash text-sm"></i>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  
-                  {locations.length === 0 && (
-                    <div className="col-span-full py-20 text-center border-2 border-dashed border-gray-200 hover:border-pilar-gold/50 rounded-[2rem] bg-white transition-colors">
-                      <div className="bg-gray-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-                        <i className="fa-solid fa-map-location-dot text-4xl text-gray-300"></i>
-                      </div>
-                      <p className="text-gray-800 font-extrabold text-xl tracking-tight">Belum ada lokasi absen terdaftar.</p>
-                      <p className="text-gray-500 text-sm mt-2 mb-8 max-w-md mx-auto">Klik "Tambah Lokasi" untuk mulai mengatur batas koordinat dan radius cabang perusahaan Anda.</p>
-                      <button 
-                        onClick={() => {
-                          setEditingLocationId(null);
-                          setFormLokasiNama("");
-                          setIsLocationModalOpen(true);
-                        }}
-                        className="bg-pilar-darker text-pilar-gold px-8 py-3 rounded-xl font-bold shadow-md hover:bg-black transition focus:ring-4 focus:ring-pilar-darker/20"
-                      >
-                        <i className="fa-solid fa-plus mr-2"></i> Tambah Lokasi Baru
-                      </button>
+
+              {/* Sub-tab 1: LOKASI */}
+              {pengaturanSubTab === "lokasi" && (
+                <div className="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 overflow-hidden animate-slide-up">
+                  <div className="p-8 border-b border-gray-100 flex flex-col md:flex-row md:justify-between md:items-center bg-gray-50/50 space-y-4 md:space-y-0">
+                    <div>
+                      <h3 className="font-extrabold text-gray-800 text-xl tracking-tight">Konfigurasi Titik Lokasi Absensi (GPS)</h3>
+                      <p className="text-sm text-gray-500 mt-1">Atur berbagai cabang perusahaan dan radius toleransi absensi.</p>
                     </div>
-                  )}
+                    <button 
+                      onClick={() => {
+                        setEditingLocationId(null);
+                        setFormLokasiNama("");
+                        setOfficeLat("-6.200000");
+                        setOfficeLng("106.816666");
+                        setOfficeRadius("50");
+                        setIsLocationModalOpen(true);
+                      }}
+                      className="w-full md:w-auto bg-pilar-darker hover:bg-black text-pilar-gold font-bold px-6 py-2.5 rounded-xl shadow-md hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20 transition-all flex items-center justify-center"
+                    >
+                      <span>Tambah Lokasi</span>
+                    </button>
+                  </div>
+                  
+                  <div className="p-8 bg-gray-50/30 min-h-[500px]">
+                    <div className="overflow-x-auto -mt-2">
+                      <table className="w-full text-left text-sm whitespace-nowrap border-separate" style={{borderSpacing: "0 16px"}}>
+                        <thead>
+                          <tr className="text-gray-500 font-semibold">
+                            <th className="px-6 py-2 font-medium">Nama Cabang / Lokasi</th>
+                            <th className="px-6 py-2 font-medium">Koordinat (Lat, Lng)</th>
+                            <th className="px-6 py-2 font-medium text-center">Radius Toleransi</th>
+                            <th className="px-6 py-2 font-medium text-center">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {locations.map(loc => (
+                            <tr key={loc.id} className="group transition-all duration-300 hover:-translate-y-1 relative z-10">
+                              <td className="px-6 py-5 bg-white rounded-l-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-l border-gray-100 group-hover:border-pilar-gold/40 transition-all">
+                                <div className="flex items-center space-x-4">
+                                  <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center text-xl text-pilar-darker border border-gray-100 shadow-inner group-hover:bg-pilar-darker group-hover:text-pilar-gold transition-colors">
+                                    <i className="fa-solid fa-building"></i>
+                                  </div>
+                                  <div className="font-extrabold text-gray-800 text-base group-hover:text-pilar-darker transition-colors">{loc.nama}</div>
+                                </div>
+                              </td>
+                              
+                              <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-gray-600">
+                                <span className="flex items-center"><i className="fa-solid fa-location-dot text-gray-400 mr-2"></i> <span className="font-mono">{loc.lat}, {loc.lng}</span></span>
+                              </td>
+                              
+                              <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-center">
+                                <span className="inline-flex items-center justify-center px-4 py-1.5 rounded-full text-xs font-bold bg-gray-50 text-gray-600 border border-gray-200">
+                                  <i className="fa-solid fa-circle-notch text-pilar-gold mr-1.5"></i> {loc.radius} m
+                                </span>
+                              </td>
+                              
+                              <td className="px-6 py-5 bg-white rounded-r-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-r border-gray-100 group-hover:border-pilar-gold/40 transition-all">
+                                <div className="flex justify-center space-x-2">
+                                  <button 
+                                    onClick={() => {
+                                      setEditingLocationId(loc.id);
+                                      setFormLokasiNama(loc.nama);
+                                      setOfficeLat(loc.lat.toString());
+                                      setOfficeLng(loc.lng.toString());
+                                      setOfficeRadius(loc.radius.toString());
+                                      setIsLocationModalOpen(true);
+                                    }}
+                                    className="w-9 h-9 rounded-xl bg-gray-50 text-gray-500 hover:text-pilar-darker hover:bg-white border border-gray-100 hover:border-gray-200 shadow-sm flex items-center justify-center transition-all"
+                                  >
+                                    <i className="fa-solid fa-pen text-sm"></i>
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteLocation(loc.id)}
+                                    className="w-9 h-9 rounded-xl bg-gray-50 text-gray-500 hover:text-red-500 hover:bg-white border border-gray-100 hover:border-gray-200 shadow-sm flex items-center justify-center transition-all"
+                                  >
+                                    <i className="fa-solid fa-trash text-sm"></i>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      
+                      {locations.length === 0 && (
+                        <div className="col-span-full py-20 text-center border-2 border-dashed border-gray-200 hover:border-pilar-gold/50 rounded-[2rem] bg-white transition-colors">
+                          <div className="bg-gray-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                            <i className="fa-solid fa-map-location-dot text-4xl text-gray-300"></i>
+                          </div>
+                          <p className="text-gray-800 font-extrabold text-xl tracking-tight">Belum ada lokasi absen terdaftar.</p>
+                          <p className="text-gray-500 text-sm mt-2 mb-8 max-w-md mx-auto">Klik "Tambah Lokasi" untuk mulai mengatur batas koordinat dan radius cabang perusahaan Anda.</p>
+                          <button 
+                            onClick={() => {
+                              setEditingLocationId(null);
+                              setFormLokasiNama("");
+                              setIsLocationModalOpen(true);
+                            }}
+                            className="bg-pilar-darker text-pilar-gold px-8 py-3 rounded-xl font-bold shadow-md hover:bg-black transition focus:ring-4 focus:ring-pilar-darker/20"
+                          >
+                            <i className="fa-solid fa-plus mr-2"></i> Tambah Lokasi Baru
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Sub-tab 2: AUDIT LOGS */}
+              {pengaturanSubTab === "audit" && (
+                <div className="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 overflow-hidden animate-slide-up">
+                  <div className="p-8 border-b border-gray-100 bg-gray-50/50 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <h3 className="font-extrabold text-gray-800 text-xl tracking-tight">Audit Trail Log Aktivitas Admin</h3>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center space-x-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <span>Realtime</span>
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-500 mt-1">Pencatatan transparan seluruh aktivitas sensitif demi akuntabilitas sistem perusahaan.</p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                      {/* Search Bar */}
+                      <div className="relative">
+                        <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                        <input
+                          type="text"
+                          value={auditSearch}
+                          onChange={(e) => setAuditSearch(e.target.value)}
+                          placeholder="Cari admin, target, aksi..."
+                          className="w-full sm:w-64 pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-pilar-gold focus:ring-2 focus:ring-pilar-gold/20"
+                        />
+                      </div>
+
+                      {/* Filter Action */}
+                      <select
+                        value={auditFilterAction}
+                        onChange={(e) => setAuditFilterAction(e.target.value)}
+                        className="py-2 px-3 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-700 focus:outline-none focus:border-pilar-gold"
+                      >
+                        <option value="all">Semua Aksi</option>
+                        <option value="TAMBAH_KARYAWAN">Tambah Karyawan</option>
+                        <option value="UPDATE_KARYAWAN">Update Karyawan</option>
+                        <option value="HAPUS_KARYAWAN">Hapus Karyawan</option>
+                        <option value="SETUJUI_PENGAJUAN">Setujui Pengajuan</option>
+                        <option value="TOLAK_PENGAJUAN">Revisi Pengajuan</option>
+                        <option value="BAYAR_GAJI">Pencairan Gaji</option>
+                        <option value="MANAJEMEN_LOKASI">Kelola Lokasi</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="p-8 bg-gray-50/30 min-h-[500px]">
+                    <div className="overflow-x-auto -mt-2">
+                      <table className="w-full text-left text-sm whitespace-nowrap border-separate" style={{borderSpacing: "0 14px"}}>
+                        <thead>
+                          <tr className="text-gray-500 font-semibold">
+                            <th className="px-6 py-2 font-medium">Waktu</th>
+                            <th className="px-6 py-2 font-medium">Admin Pelaksana</th>
+                            <th className="px-6 py-2 font-medium">Tindakan / Aksi</th>
+                            <th className="px-6 py-2 font-medium">Sasaran / Target</th>
+                            <th className="px-6 py-2 font-medium">Rincian Perubahan</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredAuditLogs.length > 0 ? (
+                            filteredAuditLogs.map((log: any) => {
+                              const d = new Date(log.timestampIso);
+                              const formattedDate = !isNaN(d.getTime()) 
+                                ? d.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) 
+                                : "-";
+
+                              return (
+                                <tr key={log.id} className="group transition-all duration-300 hover:-translate-y-0.5 relative z-10">
+                                  {/* Waktu */}
+                                  <td className="px-6 py-4 bg-white rounded-l-2xl shadow-sm border-y border-l border-gray-100 text-xs font-medium text-gray-500">
+                                    <div className="flex items-center space-x-2">
+                                      <i className="fa-regular fa-clock text-gray-400"></i>
+                                      <span className="font-mono">{formattedDate}</span>
+                                    </div>
+                                  </td>
+
+                                  {/* Admin */}
+                                  <td className="px-6 py-4 bg-white shadow-sm border-y border-gray-100">
+                                    <div className="flex items-center space-x-2">
+                                      <div className="w-7 h-7 rounded-lg bg-pilar-darker text-pilar-gold flex items-center justify-center text-xs font-bold">
+                                        <i className="fa-solid fa-user-shield"></i>
+                                      </div>
+                                      <div>
+                                        <div className="font-bold text-gray-800 text-xs">{log.adminName || "Admin"}</div>
+                                        <div className="text-[10px] text-gray-400 font-mono">{log.adminEmail}</div>
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  {/* Aksi Badge */}
+                                  <td className="px-6 py-4 bg-white shadow-sm border-y border-gray-100">
+                                    {getActionBadge(log.action)}
+                                  </td>
+
+                                  {/* Target */}
+                                  <td className="px-6 py-4 bg-white shadow-sm border-y border-gray-100 font-bold text-gray-800 text-xs">
+                                    {log.target || "-"}
+                                  </td>
+
+                                  {/* Details */}
+                                  <td className="px-6 py-4 bg-white rounded-r-2xl shadow-sm border-y border-r border-gray-100 text-xs text-gray-600 max-w-xs truncate" title={log.details}>
+                                    {log.details || "-"}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td colSpan={5} className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-200">
+                                <div className="w-16 h-16 rounded-full bg-gray-50 text-gray-400 flex items-center justify-center mx-auto mb-3 text-2xl">
+                                  <i className="fa-solid fa-shield-halved"></i>
+                                </div>
+                                <p className="font-bold text-gray-700 text-base">Belum ada riwayat aktivitas admin yang tercatat</p>
+                                <p className="text-xs text-gray-400 mt-1">Setiap penambahan karyawan, persetujuan cuti, payroll gaji, dan perubahan lokasi akan otomatis terdokumentasi di sini.</p>
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

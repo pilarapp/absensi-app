@@ -1,0 +1,76 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' || 
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isEmployee(employeeId) {
+      return isAuthenticated() && request.auth.uid == employeeId;
+    }
+
+    // 1. Koleksi Admins: Hanya admin yang bisa membaca dan memodifikasi
+    match /admins/{adminId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 2. Koleksi Employees: Admin memiliki akses penuh, karyawan hanya membaca data diri
+    match /employees/{employeeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 3. Koleksi Absensi: Karyawan hanya bisa membuat absensi miliknya, Admin mengelola semua
+    match /attendance/{attendanceId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (request.resource.data.karyawanId == request.auth.uid || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    // 4. Koleksi Pengajuan Izin/Cuti: Karyawan membuat pengajuan, Admin melakukan approval/reject
+    match /requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (request.resource.data.karyawanId == request.auth.uid || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    // 5. Koleksi Slip Gaji: Sangat rahasia, hanya admin dan karyawan pemilik slip yang bisa membaca
+    match /salary_slips/{slipId} {
+      allow read: if isAuthenticated() && (resource.data.karyawanId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // 6. Koleksi Keuangan Perusahaan: Khusus Admin/Keuangan
+    match /finances/{financeId} {
+      allow read, write: if isAdmin();
+    }
+
+    // 7. Koleksi Lokasi Kantor: Karyawan membaca untuk validasi radius, Admin mengelola
+    match /locations/{locationId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 8. Koleksi Notifikasi: Dibaca dan diperbarui status bacanya oleh pengguna terkait
+    match /notifications/{notifId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // 9. Koleksi Audit Logs: Bersifat IMMUTABLE (hanya bisa dibuat dan dibaca oleh admin, tidak bisa diedit/dihapus siapapun)
+    match /audit_logs/{logId} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
+    }
+  }
+}

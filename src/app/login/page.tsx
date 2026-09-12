@@ -63,16 +63,57 @@ export default function LoginPage() {
     }
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // Simpan session dummy untuk UI
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const idToken = await userCredential.user.getIdToken();
+
+      // Verifikasi peran melalui server endpoint
+      const res = await fetch('/api/auth/verify-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      });
+
+      const roleData = await res.json();
+
+      if (roleData.isAdmin) {
+        await auth.signOut();
+        localStorage.removeItem("user_email");
+        localStorage.removeItem("pilar_logged_in");
+        sessionStorage.removeItem("pilar_session_checked");
+        sessionStorage.removeItem("pilar_cached_employee");
+        setError("Akun ini terdaftar sebagai Administrator.");
+        setIsLoading(false);
+        return;
+      }
+
+      if (!roleData.isEmployee) {
+        await auth.signOut();
+        localStorage.removeItem("user_email");
+        localStorage.removeItem("pilar_logged_in");
+        setError("Akun karyawan tidak ditemukan atau belum terdaftar.");
+        setIsLoading(false);
+        return;
+      }
+
+      if (roleData.employeeStatus === 'Nonaktif') {
+        await auth.signOut();
+        localStorage.removeItem("user_email");
+        localStorage.removeItem("pilar_logged_in");
+        setError("Akun Anda berstatus Nonaktif. Silakan hubungi pihak HRD.");
+        setIsLoading(false);
+        return;
+      }
+
+      // Set cookie session karyawan
+      await fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'karyawan' }),
+      });
+
       localStorage.setItem("user_email", email);
       localStorage.setItem("pilar_logged_in", "true");
-      
-      if (email.includes("admin")) {
-        router.push("/admin");
-      } else {
-        router.push("/");
-      }
+      router.push("/");
     } catch (err: any) {
       if (err.code === "auth/invalid-credential" || err.code === "auth/user-not-found" || err.code === "auth/wrong-password") {
         setError("Email atau kata sandi salah.");

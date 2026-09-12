@@ -9,6 +9,8 @@ const COLL_REQUESTS = "requests";
 const COLL_FINANCES = "finances";
 const COLL_SALARY = "salary_slips";
 const COLL_NOTIFICATIONS = "notifications";
+const COLL_AUDIT_LOGS = "audit_logs";
+const COLL_ADMINS = "admins";
 
 // Fungsi abstraksi dasar (Data Access Layer) yang akan digunakan nanti.
 // Catatan: Jika db belum diinisialisasi (keys kosong), fungsi akan melempar error ringan atau mengembalikan null.
@@ -425,3 +427,69 @@ export const getEmployeeRequests = async (karyawanId: string) => {
     return [];
   }
 };
+
+// === AUDIT LOG SYSTEM ===
+export const logAdminActivity = async ({
+  adminEmail,
+  adminName = "Administrator",
+  action,
+  target = "-",
+  details = "-",
+}: {
+  adminEmail: string;
+  adminName?: string;
+  action: string;
+  target?: string;
+  details?: string;
+}) => {
+  if (!db) return null;
+  try {
+    const docRef = await addDoc(collection(db, COLL_AUDIT_LOGS), {
+      adminEmail,
+      adminName,
+      action,
+      target,
+      details,
+      timestamp: serverTimestamp(),
+      createdAt: new Date().toISOString(),
+    });
+    return docRef.id;
+  } catch (err) {
+    console.error("Gagal mencatat audit log:", err);
+    return null;
+  }
+};
+
+export const subscribeToAuditLogs = (callback: (logs: any[]) => void) => {
+  if (!db) return () => {};
+  const q = query(collection(db, COLL_AUDIT_LOGS));
+  return onSnapshot(q, (snapshot) => {
+    const logs = snapshot.docs.map(doc => {
+      const data = doc.data();
+      let ts = data.createdAt || new Date().toISOString();
+      if (data.timestamp && typeof data.timestamp.toDate === 'function') {
+        ts = data.timestamp.toDate().toISOString();
+      }
+      return {
+        id: doc.id,
+        ...data,
+        timestampIso: ts,
+      };
+    });
+    // Urutkan dari yang terbaru ke terlama
+    logs.sort((a, b) => new Date(b.timestampIso).getTime() - new Date(a.timestampIso).getTime());
+    callback(logs);
+  });
+};
+
+export const checkIsAdmin = async (uid: string): Promise<boolean> => {
+  if (!db || !uid) return false;
+  try {
+    const adminDoc = await getDoc(doc(db, COLL_ADMINS, uid));
+    return adminDoc.exists();
+  } catch (err) {
+    console.error("Gagal cek admin:", err);
+    return false;
+  }
+};
+
