@@ -9,12 +9,16 @@ import { recordCheckIn, recordCheckOut, getTodayAttendance, getEmployee, getEmpl
 import NotificationBell from '@/components/NotificationBell';
 import Toast from '@/components/Toast';
 
+// Flag untuk mencegah hydration mismatch antara SSR dan initial client render
+let hasMountedOnce = false;
+
 export default function EmployeeDashboard() {
   const router = useRouter();
 
-  // Ambil cache karyawan dari sessionStorage jika ada (untuk navigasi antar tab instan)
+  // Ambil cache karyawan dari sessionStorage hanya jika sudah pernah mount di client (untuk navigasi SPA antar-tab instan)
+  // Pada initial hydration & SSR selalu bernilai null agar struktur HTML konsisten 100%
   const [currentUser, setCurrentUser] = useState<any>(() => {
-    if (typeof window === 'undefined') return null;
+    if (!hasMountedOnce || typeof window === 'undefined') return null;
     try {
       const cached = sessionStorage.getItem("pilar_cached_employee");
       return cached ? JSON.parse(cached) : null;
@@ -23,9 +27,10 @@ export default function EmployeeDashboard() {
     }
   });
 
-  // isAuthChecking hanya TRUE jika aplikasi baru dibuka pertama kali (belum pernah diperiksa di sesi ini)
+  // isAuthChecking: Pada initial hydration/SSR selalu TRUE agar sama dengan server.
+  // Saat SPA navigation (hasMountedOnce === true), langsung gunakan cache sesi agar tanpa flicker.
   const [isAuthChecking, setIsAuthChecking] = useState(() => {
-    if (typeof window === 'undefined') return true;
+    if (!hasMountedOnce || typeof window === 'undefined') return true;
     const sessionChecked = sessionStorage.getItem("pilar_session_checked") === "true";
     const hasCachedUser = !!sessionStorage.getItem("pilar_cached_employee");
     return !(sessionChecked && hasCachedUser);
@@ -163,8 +168,19 @@ export default function EmployeeDashboard() {
       setLocationText("");
     };
     
-    // Jika sesi sudah pernah diperiksa di sesi ini (misal saat klik tab Beranda), durasi loading 0 detik (instan)
-    const isAlreadyChecked = typeof window !== 'undefined' && sessionStorage.getItem("pilar_session_checked") === "true";
+    hasMountedOnce = true;
+
+    // Periksa cache sesi lokal
+    const sessionChecked = typeof window !== 'undefined' && sessionStorage.getItem("pilar_session_checked") === "true";
+    const cachedEmpStr = typeof window !== 'undefined' ? sessionStorage.getItem("pilar_cached_employee") : null;
+    let cachedEmp: any = null;
+    if (sessionChecked && cachedEmpStr) {
+      try {
+        cachedEmp = JSON.parse(cachedEmpStr);
+      } catch {}
+    }
+
+    const isAlreadyChecked = sessionChecked && !!cachedEmp;
     const MIN_LOADING_TIME = isAlreadyChecked ? 0 : 1000;
 
     const finishLoading = (action: () => void) => {
@@ -188,9 +204,11 @@ export default function EmployeeDashboard() {
       return;
     }
 
-    // Jika sudah ada cache pengguna saat berpindah tab, langsung inisialisasi data absen tanpa tunggu
-    if (isAlreadyChecked && currentUser?.id) {
-      init(currentUser.id);
+    // Jika sudah ada cache pengguna (misal saat refresh halaman), aktifkan langsung setelah mount
+    if (isAlreadyChecked && cachedEmp) {
+      setCurrentUser(cachedEmp);
+      setIsAuthChecking(false);
+      init(cachedEmp.id);
     }
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
@@ -220,11 +238,13 @@ export default function EmployeeDashboard() {
       }
     });
 
-    timer = setInterval(() => {
+    const updateClock = () => {
       const now = new Date();
       setCurrentTime(now.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }));
       setCurrentDate(now.toLocaleDateString("id-ID", { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
-    }, 1000);
+    };
+    updateClock();
+    timer = setInterval(updateClock, 1000);
 
     return () => {
       if (timer) clearInterval(timer);
