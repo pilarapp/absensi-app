@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import dynamic from "next/dynamic";
 import CustomSelect from "@/components/CustomSelect";
-import { subscribeToRequests, updateRequestStatus, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs } from "@/lib/db";
+import { subscribeToRequests, updateRequestStatus, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs, subscribeToPositions, addPosition, DEFAULT_POSITIONS, PositionItem } from "@/lib/db";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
@@ -200,7 +200,7 @@ export default function AdminDesktopPage() {
   const [formNama, setFormNama] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formPassword, setFormPassword] = useState("");
-  const [formPosisi, setFormPosisi] = useState("");
+  const [formPosisi, setFormPosisi] = useState("Pengawas");
   const [formStatus, setFormStatus] = useState<"Aktif" | "Nonaktif">("Aktif");
   const [formLokasiId, setFormLokasiId] = useState("all");
   const [formShiftMasuk, setFormShiftMasuk] = useState("08:00");
@@ -212,6 +212,54 @@ export default function AdminDesktopPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [formTouched, setFormTouched] = useState<Record<string, boolean>>({});
   const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  // Master Positions State
+  const [positions, setPositions] = useState<PositionItem[]>(
+    DEFAULT_POSITIONS.map((p, idx) => ({ id: `default-${idx}`, nama: p, isDefault: true }))
+  );
+  const [showAddPositionModal, setShowAddPositionModal] = useState(false);
+  const [newPositionName, setNewPositionName] = useState("");
+  const [isSavingPosition, setIsSavingPosition] = useState(false);
+  const [positionModalError, setPositionModalError] = useState("");
+
+  const positionOptions = useMemo(() => {
+    const names = new Set(positions.map(p => p.nama));
+    const extraOptions: { value: string; label: string }[] = [];
+    karyawanList.forEach(k => {
+      if (k.posisi && !names.has(k.posisi)) {
+        names.add(k.posisi);
+        extraOptions.push({ value: k.posisi, label: k.posisi });
+      }
+    });
+    const mainOptions = positions.map(p => ({ value: p.nama, label: p.nama }));
+    return [...mainOptions, ...extraOptions];
+  }, [positions, karyawanList]);
+
+  const handleAddNewPosition = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newPositionName.trim()) {
+      setPositionModalError("Nama posisi / jabatan tidak boleh kosong");
+      return;
+    }
+    setIsSavingPosition(true);
+    setPositionModalError("");
+    try {
+      const res = await addPosition(newPositionName.trim());
+      if (res.success) {
+        const addedName = newPositionName.trim();
+        setFormPosisi(addedName);
+        setShowAddPositionModal(false);
+        setNewPositionName("");
+        showToast(`Posisi "${addedName}" berhasil ditambahkan!`);
+      } else {
+        setPositionModalError(res.error || "Gagal menambahkan posisi");
+      }
+    } catch (err: any) {
+      setPositionModalError(err.message || "Terjadi kesalahan sistem");
+    } finally {
+      setIsSavingPosition(false);
+    }
+  };
 
   const markTouched = (field: string) => {
     setFormTouched(prev => ({ ...prev, [field]: true }));
@@ -337,6 +385,11 @@ export default function AdminDesktopPage() {
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, message: string, onConfirm: () => void} | null>(null);
 
   useEffect(() => {
+    // Load positions via Firestore
+    const unsubscribePositions = subscribeToPositions((data) => {
+      setPositions(data);
+    });
+
     // Load locations via Firestore
     const unsubscribeLocations = subscribeToLocations((data) => {
       if (data.length === 0) {
@@ -444,6 +497,7 @@ export default function AdminDesktopPage() {
     });
 
     return () => {
+      unsubscribePositions();
       unsubscribeRequests();
       unsubscribeLocations();
       unsubscribeEmployees();
@@ -664,7 +718,7 @@ export default function AdminDesktopPage() {
     setFormNama("");
     setFormEmail("");
     setFormPassword("");
-    setFormPosisi("");
+    setFormPosisi(positions[0]?.nama || "Pengawas");
     setFormStatus("Aktif");
     setFormLokasiId("all");
     setFormShiftMasuk("08:00");
@@ -1303,10 +1357,18 @@ export default function AdminDesktopPage() {
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Posisi / Jabatan</label>
-                      <input 
-                        type="text" required value={formPosisi} onChange={(e) => setFormPosisi(e.target.value)}
-                        placeholder="Contoh: Staff IT, Finance, HR"
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white"
+                      <CustomSelect 
+                        value={formPosisi}
+                        onChange={(val) => setFormPosisi(val)}
+                        options={positionOptions}
+                        actionButton={{
+                          label: "Tambah Posisi Baru...",
+                          onClick: () => {
+                            setNewPositionName("");
+                            setPositionModalError("");
+                            setShowAddPositionModal(true);
+                          }
+                        }}
                       />
                     </div>
                     <div>
@@ -3642,6 +3704,98 @@ export default function AdminDesktopPage() {
             <div className="hidden print:block mt-14 pt-4 border-t border-gray-200 text-center text-[10px] text-gray-400 italic">
               Dokumen ini diterbitkan secara resmi melalui Sistem Payroll Elektronik PT. Pilar Sentra Solusi dan merupakan bukti penerimaan gaji yang sah.
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL TAMBAH POSISI / JABATAN BARU */}
+      {showAddPositionModal && (
+        <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center pb-3 border-b border-gray-100 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-pilar-darker/10 text-pilar-darker flex items-center justify-center font-bold">
+                  <i className="fa-solid fa-briefcase"></i>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Tambah Jabatan Baru</h3>
+                  <p className="text-xs text-gray-400">Tambahkan kategori posisi ke dalam master data</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowAddPositionModal(false);
+                  setNewPositionName("");
+                  setPositionModalError("");
+                }}
+                className="w-8 h-8 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+
+            <form onSubmit={handleAddNewPosition} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                  Nama Posisi / Jabatan <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={newPositionName}
+                  onChange={(e) => {
+                    setNewPositionName(e.target.value);
+                    if (positionModalError) setPositionModalError("");
+                  }}
+                  placeholder="Contoh: Staff HRD, Legal Officer..."
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker text-sm font-medium shadow-xs bg-gray-50/50 focus:bg-white transition-all"
+                />
+                {positionModalError && (
+                  <p className="text-xs text-rose-600 mt-1.5 flex items-center gap-1 font-medium">
+                    <i className="fa-solid fa-circle-exclamation shrink-0"></i>
+                    <span>{positionModalError}</span>
+                  </p>
+                )}
+              </div>
+
+              <div className="bg-amber-50/60 border border-amber-200/60 rounded-xl p-3 flex items-start gap-2.5 text-xs text-amber-800">
+                <i className="fa-solid fa-lightbulb text-amber-500 mt-0.5 shrink-0"></i>
+                <span>Jabatan baru akan otomatis tersimpan di database dan langsung terpilih untuk karyawan ini.</span>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={isSavingPosition}
+                  onClick={() => {
+                    setShowAddPositionModal(false);
+                    setNewPositionName("");
+                    setPositionModalError("");
+                  }}
+                  className="px-4 py-2.5 rounded-xl border border-gray-200 text-gray-700 text-xs font-bold hover:bg-gray-50 transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingPosition || !newPositionName.trim()}
+                  className="px-5 py-2.5 rounded-xl bg-pilar-darker hover:bg-pilar-darker/90 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer"
+                >
+                  {isSavingPosition ? (
+                    <>
+                      <i className="fa-solid fa-spinner fa-spin"></i>
+                      <span>Menyimpan...</span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-plus"></i>
+                      <span>Simpan Jabatan</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -38,7 +38,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="id">
+    <html lang="id" suppressHydrationWarning>
       <head>
         <link rel="icon" href="/icon-512.png" type="image/png" />
         <link rel="shortcut icon" href="/icon-512.png" type="image/png" />
@@ -52,7 +52,7 @@ export default function RootLayout({
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
         />
       </head>
-      <body className={`${jakartaSans.variable} antialiased`}>
+      <body className={`${jakartaSans.variable} antialiased`} suppressHydrationWarning>
         {children}
       </body>
     </html>

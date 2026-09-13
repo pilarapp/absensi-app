@@ -11,6 +11,7 @@ const COLL_SALARY = "salary_slips";
 const COLL_NOTIFICATIONS = "notifications";
 const COLL_AUDIT_LOGS = "audit_logs";
 const COLL_ADMINS = "admins";
+const COLL_POSITIONS = "positions";
 
 // Fungsi abstraksi dasar (Data Access Layer) yang akan digunakan nanti.
 // Catatan: Jika db belum diinisialisasi (keys kosong), fungsi akan melempar error ringan atau mengembalikan null.
@@ -489,6 +490,143 @@ export const checkIsAdmin = async (uid: string): Promise<boolean> => {
     return adminDoc.exists();
   } catch (err) {
     console.error("Gagal cek admin:", err);
+    return false;
+  }
+};
+
+// === MASTER DATA POSISI / JABATAN ===
+export const DEFAULT_POSITIONS: string[] = [
+  "Pengawas",
+  "Pramubakti",
+  "Tenaga Kebersihan",
+  "Pengemudi",
+  "Petugas PTSP",
+  "Satpam"
+];
+
+export interface PositionItem {
+  id: string;
+  nama: string;
+  isDefault?: boolean;
+  createdAt?: any;
+}
+
+export const fetchPositions = async (): Promise<PositionItem[]> => {
+  if (!db) {
+    return DEFAULT_POSITIONS.map((p, idx) => ({ id: `default-${idx}`, nama: p, isDefault: true }));
+  }
+  const firestore = db;
+  try {
+    const snapshot = await getDocs(collection(firestore, COLL_POSITIONS));
+    if (snapshot.empty) {
+      for (const pos of DEFAULT_POSITIONS) {
+        await addDoc(collection(firestore, COLL_POSITIONS), {
+          nama: pos,
+          isDefault: true,
+          createdAt: serverTimestamp()
+        });
+      }
+      return DEFAULT_POSITIONS.map((p, idx) => ({ id: `default-${idx}`, nama: p, isDefault: true }));
+    }
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PositionItem));
+  } catch (err) {
+    console.error("Gagal mengambil posisi:", err);
+    return DEFAULT_POSITIONS.map((p, idx) => ({ id: `default-${idx}`, nama: p, isDefault: true }));
+  }
+};
+
+export const subscribeToPositions = (callback: (data: PositionItem[]) => void) => {
+  if (!db) {
+    callback(DEFAULT_POSITIONS.map((p, idx) => ({ id: `default-${idx}`, nama: p, isDefault: true })));
+    return () => {};
+  }
+  const firestore = db;
+  const q = query(collection(firestore, COLL_POSITIONS));
+  let seeded = false;
+  return onSnapshot(q, async (snapshot) => {
+    if (snapshot.empty && !seeded) {
+      seeded = true;
+      try {
+        for (const pos of DEFAULT_POSITIONS) {
+          await addDoc(collection(firestore, COLL_POSITIONS), {
+            nama: pos,
+            isDefault: true,
+            createdAt: serverTimestamp()
+          });
+        }
+      } catch (err) {
+        console.error("Gagal seed default positions:", err);
+      }
+      callback(DEFAULT_POSITIONS.map((p, idx) => ({ id: `default-${idx}`, nama: p, isDefault: true })));
+      return;
+    }
+
+    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PositionItem));
+    
+    // Pastikan seluruh default positions tetap ada dalam daftar meskipun database belum memuat semuanya
+    const existingNames = new Set(data.map(d => (d.nama || "").trim().toLowerCase()));
+    const missingDefaults = DEFAULT_POSITIONS
+      .filter(def => !existingNames.has(def.toLowerCase()))
+      .map((def, idx) => ({
+        id: `default-${idx}`,
+        nama: def,
+        isDefault: true
+      }));
+
+    const combined = [...missingDefaults, ...data];
+    // Urutkan default positions terlebih dahulu sesuai urutan gambar, lalu posisi kustom secara abjad
+    combined.sort((a, b) => {
+      const idxA = DEFAULT_POSITIONS.indexOf(a.nama);
+      const idxB = DEFAULT_POSITIONS.indexOf(b.nama);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.nama.localeCompare(b.nama);
+    });
+
+    callback(combined);
+  }, (err) => {
+    console.error("Error subscribing to positions:", err);
+    callback(DEFAULT_POSITIONS.map((p, idx) => ({ id: `default-${idx}`, nama: p, isDefault: true })));
+  });
+};
+
+export const addPosition = async (nama: string): Promise<{ success: boolean; id?: string; error?: string }> => {
+  if (!db) return { success: false, error: "Database tidak terhubung" };
+  const firestore = db;
+  const trimmed = nama.trim();
+  if (!trimmed) return { success: false, error: "Nama posisi / jabatan tidak boleh kosong" };
+
+  try {
+    const snapshot = await getDocs(collection(firestore, COLL_POSITIONS));
+    const existsInDb = snapshot.docs.some(doc => (doc.data().nama || "").trim().toLowerCase() === trimmed.toLowerCase());
+    const existsInDefault = DEFAULT_POSITIONS.some(p => p.trim().toLowerCase() === trimmed.toLowerCase());
+
+    if (existsInDb || existsInDefault) {
+      return { success: false, error: `Posisi "${trimmed}" sudah ada dalam daftar` };
+    }
+
+    const docRef = await addDoc(collection(firestore, COLL_POSITIONS), {
+      nama: trimmed,
+      isDefault: false,
+      createdAt: serverTimestamp()
+    });
+    return { success: true, id: docRef.id };
+  } catch (err: any) {
+    console.error("Gagal menambahkan posisi:", err);
+    return { success: false, error: err.message || "Gagal menyimpan posisi ke database" };
+  }
+};
+
+export const deletePosition = async (positionId: string): Promise<boolean> => {
+  if (!db) return false;
+  const firestore = db;
+  try {
+    const { deleteDoc } = await import("firebase/firestore");
+    await deleteDoc(doc(firestore, COLL_POSITIONS, positionId));
+    return true;
+  } catch (err) {
+    console.error("Gagal menghapus posisi:", err);
     return false;
   }
 };
