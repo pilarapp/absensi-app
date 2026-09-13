@@ -66,16 +66,53 @@ export default function AdminLoginPage() {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const idToken = await userCredential.user.getIdToken();
 
-      // Verifikasi peran melalui server endpoint
-      const res = await fetch('/api/auth/verify-role', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
-      });
+      let roleData: any = null;
 
-      const roleData = await res.json();
+      // 1. Coba verifikasi peran melalui server endpoint
+      try {
+        const res = await fetch('/api/auth/verify-role', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken }),
+        });
 
-      if (!roleData.isAdmin) {
+        const resText = await res.text();
+        if (resText) {
+          try {
+            const parsed = JSON.parse(resText);
+            if (res.ok) {
+              roleData = parsed;
+            } else {
+              console.warn("verify-role endpoint response non-ok:", res.status, parsed);
+            }
+          } catch {
+            console.warn("verify-role response is not JSON:", resText.slice(0, 100));
+          }
+        }
+      } catch (networkOrJsonErr) {
+        console.warn("verify-role fetch gagal, mencoba fallback Firestore langsung:", networkOrJsonErr);
+      }
+
+      // 2. Fallback: Verifikasi langsung via Firebase Client Firestore jika serverless function Vercel bermasalah
+      if (!roleData) {
+        try {
+          const { getDoc, doc } = await import("firebase/firestore");
+          const { db } = await import("@/lib/firebase");
+          if (db) {
+            const admDoc = await getDoc(doc(db, "admins", userCredential.user.uid));
+            if (admDoc.exists()) {
+              roleData = {
+                isAdmin: true,
+                role: "admin"
+              };
+            }
+          }
+        } catch (fallbackErr) {
+          console.error("Fallback admin verification error:", fallbackErr);
+        }
+      }
+
+      if (!roleData || !roleData.isAdmin) {
         await auth.signOut();
         localStorage.removeItem("admin_email");
         setError("Akses Ditolak: Akun Anda bukan Administrator.");
@@ -84,11 +121,15 @@ export default function AdminLoginPage() {
       }
 
       // Set cookie session admin untuk Next.js Middleware
-      await fetch('/api/auth/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: 'admin' }),
-      });
+      try {
+        await fetch('/api/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'admin' }),
+        });
+      } catch (sessionErr) {
+        console.warn("Gagal set admin session cookie:", sessionErr);
+      }
 
       localStorage.setItem("admin_email", email);
       router.push("/admin");

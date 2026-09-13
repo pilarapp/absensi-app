@@ -66,14 +66,81 @@ export default function LoginPage() {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const idToken = await userCredential.user.getIdToken();
 
-      // Verifikasi peran melalui server endpoint
-      const res = await fetch('/api/auth/verify-role', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
-      });
+      let roleData: any = null;
 
-      const roleData = await res.json();
+      // 1. Coba verifikasi peran melalui server endpoint
+      try {
+        const res = await fetch('/api/auth/verify-role', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken }),
+        });
+
+        const resText = await res.text();
+        if (resText) {
+          try {
+            const parsed = JSON.parse(resText);
+            if (res.ok) {
+              roleData = parsed;
+            } else {
+              console.warn("verify-role endpoint response non-ok:", res.status, parsed);
+            }
+          } catch {
+            console.warn("verify-role response is not JSON:", resText.slice(0, 100));
+          }
+        }
+      } catch (networkOrJsonErr) {
+        console.warn("verify-role fetch gagal, mencoba fallback Firestore langsung:", networkOrJsonErr);
+      }
+
+      // 2. Fallback: Verifikasi langsung via Firebase Client Firestore jika serverless function Vercel bermasalah
+      if (!roleData) {
+        try {
+          const { getDoc, doc, collection, query, where, getDocs } = await import("firebase/firestore");
+          const { db } = await import("@/lib/firebase");
+          if (db) {
+            // Cek di koleksi admins
+            const admDoc = await getDoc(doc(db, "admins", userCredential.user.uid));
+            if (admDoc.exists()) {
+              roleData = {
+                isAdmin: true,
+                isEmployee: false,
+                role: "admin"
+              };
+            } else {
+              // Cek di koleksi employees berdasarkan UID
+              const empDoc = await getDoc(doc(db, "employees", userCredential.user.uid));
+              if (empDoc.exists()) {
+                const empData = empDoc.data();
+                roleData = {
+                  isAdmin: false,
+                  isEmployee: true,
+                  employeeStatus: empData.status || "Aktif",
+                  role: "karyawan"
+                };
+              } else {
+                // Cek di koleksi employees berdasarkan email
+                const empQuery = await getDocs(query(collection(db, "employees"), where("email", "==", email.toLowerCase())));
+                if (!empQuery.empty) {
+                  const empData = empQuery.docs[0].data();
+                  roleData = {
+                    isAdmin: false,
+                    isEmployee: true,
+                    employeeStatus: empData.status || "Aktif",
+                    role: "karyawan"
+                  };
+                }
+              }
+            }
+          }
+        } catch (fallbackErr) {
+          console.error("Fallback verification error:", fallbackErr);
+        }
+      }
+
+      if (!roleData) {
+        throw new Error("Gagal memverifikasi status akun. Pastikan koneksi internet stabil atau hubungi administrator.");
+      }
 
       if (roleData.isAdmin) {
         await auth.signOut();
@@ -81,7 +148,7 @@ export default function LoginPage() {
         localStorage.removeItem("pilar_logged_in");
         sessionStorage.removeItem("pilar_session_checked");
         sessionStorage.removeItem("pilar_cached_employee");
-        setError("Akun ini terdaftar sebagai Administrator.");
+        setError("Akun ini terdaftar sebagai Administrator. Silakan login melalui portal Admin.");
         setIsLoading(false);
         return;
       }
@@ -105,11 +172,15 @@ export default function LoginPage() {
       }
 
       // Set cookie session karyawan
-      await fetch('/api/auth/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: 'karyawan' }),
-      });
+      try {
+        await fetch('/api/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'karyawan' }),
+        });
+      } catch (sessionErr) {
+        console.warn("Gagal set session cookie:", sessionErr);
+      }
 
       localStorage.setItem("user_email", email);
       localStorage.setItem("pilar_logged_in", "true");

@@ -41,6 +41,7 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error('Verify role error:', error);
-    return NextResponse.json({ error: error.message || 'Token verification failed' }, { status: 401 });
+    const status = error?.code?.startsWith('auth/') ? 401 : 500;
+    return NextResponse.json({ error: error.message || 'Token verification failed' }, { status });
   }
 }
