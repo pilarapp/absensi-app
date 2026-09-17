@@ -8,7 +8,7 @@ import { submitRequest, updateRequest, fetchRequestById, subscribeToRequests, ad
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
-type PengajuanType = "Cuti Tahunan" | "Cuti Sakit" | "Cuti Haid" | "Cuti Melahirkan" | "Cuti Khusus" | "Izin Pribadi" | "Cuti Lembur";
+type PengajuanType = "Cuti Tahunan" | "Cuti Sakit" | "Cuti Haid" | "Cuti Melahirkan" | "Cuti Khusus" | "Izin Pribadi";
 
 export default function PengajuanPage() {
   const [type, setType] = useState<PengajuanType>("Cuti Tahunan");
@@ -134,7 +134,7 @@ export default function PengajuanPage() {
     }
   }, [startDate, endDate]);
 
-  const needsAttachment = ["Cuti Sakit", "Cuti Melahirkan", "Cuti Khusus"].includes(type);
+  const needsAttachment = ["Cuti Sakit", "Cuti Melahirkan", "Cuti Khusus", "Izin Pribadi"].includes(type);
 
   // Bersihkan lampiran jika tipe cuti berubah menjadi yang tidak membutuhkan lampiran
   useEffect(() => {
@@ -163,32 +163,23 @@ export default function PengajuanPage() {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  const [minDateAllowed, setMinDateAllowed] = useState("");
-
-  useEffect(() => {
-    const today = new Date();
-    today.setDate(today.getDate() + 30);
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    setMinDateAllowed(`${year}-${month}-${day}`);
-  }, []);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     
     try {
-      const selectedDate = new Date(startDate);
-      const minimumDate = new Date();
-      minimumDate.setDate(minimumDate.getDate() + 30);
-      selectedDate.setHours(0, 0, 0, 0);
-      minimumDate.setHours(0, 0, 0, 0);
+      if (!startDate || !endDate) {
+        setToastMessage("Tanggal mulai dan masuk kembali wajib dipilih!");
+        setTimeout(() => setToastMessage(""), 4000);
+        setIsSubmitting(false);
+        return;
+      }
 
-      // Hanya validasi 30 hari jika bukan sedang revisi (buat pengajuan baru)
-      if (!editId && selectedDate < minimumDate) {
-        setToastMessage("Pengajuan cuti harus minimal 30 hari sebelumnya!");
-        setTimeout(() => setToastMessage(""), 5000);
+      const sDate = new Date(startDate);
+      const eDate = new Date(endDate);
+      if (eDate < sDate) {
+        setToastMessage("Tanggal masuk kembali tidak boleh lebih awal dari tanggal mulai cuti!");
+        setTimeout(() => setToastMessage(""), 4000);
         setIsSubmitting(false);
         return;
       }
@@ -384,7 +375,6 @@ export default function PengajuanPage() {
                 className="w-full bg-pilar-darker border border-white/10 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-pilar-gold appearance-none text-white"
               >
                 <option value="Cuti Tahunan" className="bg-[#00142f] text-white">Cuti Tahunan</option>
-                <option value="Cuti Lembur" className="bg-[#00142f] text-white">Cuti Lembur (Kompensasi)</option>
                 <option value="Cuti Sakit" className="bg-[#00142f] text-white">Cuti Sakit</option>
                 <option value="Cuti Haid" className="bg-[#00142f] text-white">Cuti Haid</option>
                 <option value="Cuti Melahirkan" className="bg-[#00142f] text-white">Cuti Melahirkan / Keguguran</option>
@@ -427,7 +417,6 @@ export default function PengajuanPage() {
                 <input 
                   type="date" 
                   required
-                  min={minDateAllowed}
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-pilar-gold text-pilar-textPrimary"
@@ -439,7 +428,7 @@ export default function PengajuanPage() {
                 <input 
                   type="date" 
                   required
-                  min={startDate || minDateAllowed}
+                  min={startDate || undefined}
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-pilar-gold text-pilar-textPrimary"
@@ -447,11 +436,6 @@ export default function PengajuanPage() {
                 />
               </div>
             </div>
-            {startDate && new Date(startDate) < new Date(minDateAllowed) && !editId && (
-              <div className="bg-red-500/10 text-red-400 text-xs px-3 py-2 mb-3 rounded-lg text-center font-medium border border-red-500/20">
-                Tanggal mulai pengajuan baru harus minimal 30 hari dari sekarang.
-              </div>
-            )}
             {duration > 0 && (
               <div className="bg-pilar-gold/10 text-pilar-gold text-xs px-3 py-2 rounded-lg text-center font-medium border border-pilar-gold/20">
                 Lama Cuti: {duration} Hari
@@ -459,12 +443,14 @@ export default function PengajuanPage() {
             )}
             {duration === 0 && startDate && endDate && (
               <div className="bg-red-500/10 text-red-400 text-xs px-3 py-2 rounded-lg text-center font-medium border border-red-500/20">
-                Tanggal masuk harus lebih dari tanggal mulai.
+                Tanggal masuk harus lebih dari atau sama dengan tanggal mulai.
               </div>
             )}
             <div className="mt-4 pt-3 border-t border-white/5 flex items-start space-x-2 text-[10px] text-gray-400 leading-relaxed">
-              <i className="fa-solid fa-circle-info mt-0.5 text-pilar-gold"></i>
-              <p><strong>Catatan Penting:</strong> Sesuai dengan kebijakan perusahaan, pengajuan cuti wajib dilakukan selambat-lambatnya <strong>30 hari</strong> sebelum tanggal mulai cuti.</p>
+              <i className="fa-solid fa-circle-info mt-0.5 text-pilar-gold shrink-0"></i>
+              <p>
+                <strong className="text-gray-300">Ketentuan Pengajuan:</strong> Sesuai kebijakan perusahaan, pengajuan cuti diharapkan diajukan sekurang-kurangnya <strong className="text-pilar-gold">30 hari sebelumnya</strong> guna kelancaran penyesuaian operasional dan proses peninjauan oleh pihak HRD & Manajemen.
+              </p>
             </div>
           </div>
 
@@ -489,62 +475,6 @@ export default function PengajuanPage() {
             ></textarea>
           </div>
 
-          {/* Pelimpahan Tugas */}
-          <div className="mb-6 p-4 bg-pilar-darker rounded-xl border border-pilar-gold/30 relative">
-            <div className="absolute -top-2.5 left-4 bg-pilar-darker px-2 text-[10px] font-bold text-pilar-gold uppercase tracking-widest">
-              Pelimpahan Tugas
-            </div>
-            <p className="text-[10px] text-gray-400 mb-3 mt-1">Tugas & wewenang selama cuti dilimpahkan kepada:</p>
-            <div className="space-y-3">
-              <div className="relative">
-                <select 
-                  value={delegationId || ""}
-                  onChange={(e) => {
-                    const empId = e.target.value;
-                    if (!empId) {
-                      setDelegationName("");
-                      setDelegationId("");
-                      setDelegationRole("");
-                      setDelegationNik("");
-                      return;
-                    }
-                    const emp = allEmployees.find((e) => e.id === empId);
-                    if (emp) {
-                      setDelegationId(emp.id);
-                      setDelegationName(emp.nama);
-                      setDelegationRole(emp.posisi || emp.divisi || "");
-                      setDelegationNik(emp.noInduk || emp.karyawanId || `PLR-${emp.id.substring(0,6).toUpperCase()}`);
-                    }
-                  }}
-                  required
-                  className="w-full bg-pilar-darker border border-white/10 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-pilar-gold appearance-none text-white"
-                >
-                  <option value="" disabled hidden className="bg-[#00142f] text-white">Pilih Nama Pengganti</option>
-                  {allEmployees.map((emp) => (
-                    <option key={emp.id} value={emp.id} className="bg-[#00142f] text-white">
-                      {emp.nama}
-                    </option>
-                  ))}
-                </select>
-                <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
-                  <i className="fa-solid fa-chevron-down text-gray-400 text-xs"></i>
-                </div>
-              </div>
-              
-              {delegationName && (
-                <div className="bg-black/20 border border-white/10 rounded-xl p-4 flex flex-col space-y-4 animate-in fade-in slide-in-from-top-2">
-                  <div className="flex flex-col space-y-1.5">
-                    <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">No. Induk / NIK</span>
-                    <span className="text-sm font-mono text-gray-300 bg-white/5 px-3 py-2 rounded-lg border border-white/5 break-all">{delegationNik || "-"}</span>
-                  </div>
-                  <div className="flex flex-col space-y-1.5">
-                    <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Jabatan</span>
-                    <span className="text-sm font-bold text-pilar-gold bg-pilar-gold/10 px-3 py-2 rounded-lg border border-pilar-gold/20 break-words">{delegationRole || "-"}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
 
           {needsAttachment && (
             <div className="mb-8 animate-in fade-in slide-in-from-top-2">
@@ -561,7 +491,7 @@ export default function PengajuanPage() {
                 <div className="flex flex-col items-center justify-center space-y-2 pointer-events-none py-2">
                   <i className={`fa-solid ${(attachments.length + existingFiles.length) > 0 ? 'fa-file-circle-check text-green-400' : 'fa-cloud-arrow-up text-pilar-textSecondary'} text-2xl`}></i>
                   <span className={`text-center font-medium ${(attachments.length + existingFiles.length) > 0 ? 'text-white' : 'text-pilar-textSecondary'}`}>
-                    {(attachments.length + existingFiles.length) > 0 ? `${attachments.length + existingFiles.length} file dilampirkan` : "Ketuk untuk melampirkan dokumen persetujuan/surat dokter"}
+                    {(attachments.length + existingFiles.length) > 0 ? `${attachments.length + existingFiles.length} file dilampirkan` : "Ketuk untuk melampirkan dokumen / surat keterangan pendukung"}
                   </span>
                 </div>
               </div>

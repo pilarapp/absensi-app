@@ -4546,7 +4546,7 @@ export default function AdminDesktopPage() {
               </div>
 
               {/* KETERANGAN & PELIMPAHAN TUGAS */}
-              <div className="grid grid-cols-2 gap-6 mb-8">
+              <div className={`grid ${selectedPengajuan.delegationName && selectedPengajuan.delegationName !== "__________________" ? "grid-cols-2" : "grid-cols-1"} gap-6 mb-8`}>
                 <div className="border border-gray-300 rounded-xl overflow-hidden">
                   <div className="bg-gray-100 border-b border-gray-300 font-bold px-4 py-2 text-xs text-gray-700 uppercase tracking-wider">
                     C. Keterangan / Alasan
@@ -4566,40 +4566,43 @@ export default function AdminDesktopPage() {
                     </div>
                   </div>
                 </div>
-                <div className="border border-gray-300 rounded-xl overflow-hidden">
-                  <div className="bg-gray-100 border-b border-gray-300 font-bold px-4 py-2 text-xs text-gray-700 uppercase tracking-wider">
-                    D. Pelimpahan Tugas
+
+                {selectedPengajuan.delegationName && selectedPengajuan.delegationName !== "__________________" && (
+                  <div className="border border-gray-300 rounded-xl overflow-hidden">
+                    <div className="bg-gray-100 border-b border-gray-300 font-bold px-4 py-2 text-xs text-gray-700 uppercase tracking-wider">
+                      D. Pelimpahan Tugas
+                    </div>
+                    <div className="p-4 space-y-3 text-xs bg-white min-h-[100px]">
+                      <div className="grid grid-cols-[80px_auto_1fr] gap-2 border-b border-gray-100 pb-1.5">
+                        <span className="text-gray-500 font-medium">Nama</span>
+                        <span className="text-gray-400">:</span>
+                        <span className="font-bold text-gray-900">{selectedPengajuan.delegationName}</span>
+                      </div>
+                      <div className="grid grid-cols-[80px_auto_1fr] gap-2 border-b border-gray-100 pb-1.5">
+                        <span className="text-gray-500 font-medium">No. Induk (NIK)</span>
+                        <span className="text-gray-400">:</span>
+                        <span className="font-mono font-bold text-gray-800">
+                          {(() => {
+                            const emp = karyawanList.find(k => k.id === selectedPengajuan.delegationId || k.nama === selectedPengajuan.delegationName);
+                            return selectedPengajuan.delegationNik || emp?.noInduk || "-";
+                          })()}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-[80px_auto_1fr] gap-2 border-b border-gray-100 pb-1.5">
+                        <span className="text-gray-500 font-medium">Jabatan</span>
+                        <span className="text-gray-400">:</span>
+                        <span className="font-medium text-gray-800">{selectedPengajuan.delegationRole || "-"}</span>
+                      </div>
+                      <div className="mt-4 pt-2 text-[10px] text-gray-400 leading-tight">
+                        *Dengan ini penerima wewenang bersedia mengambil alih tanggung jawab pekerjaan selama pemohon tidak hadir.
+                      </div>
+                    </div>
                   </div>
-                  <div className="p-4 space-y-3 text-xs bg-white min-h-[100px]">
-                    <div className="grid grid-cols-[80px_auto_1fr] gap-2 border-b border-gray-100 pb-1.5">
-                      <span className="text-gray-500 font-medium">Nama</span>
-                      <span className="text-gray-400">:</span>
-                      <span className="font-bold text-gray-900">{selectedPengajuan.delegationName || "__________________"}</span>
-                    </div>
-                    <div className="grid grid-cols-[80px_auto_1fr] gap-2 border-b border-gray-100 pb-1.5">
-                      <span className="text-gray-500 font-medium">No. Induk (NIK)</span>
-                      <span className="text-gray-400">:</span>
-                      <span className="font-mono font-bold text-gray-800">
-                        {(() => {
-                          const emp = karyawanList.find(k => k.id === selectedPengajuan.delegationId || k.nama === selectedPengajuan.delegationName);
-                          return selectedPengajuan.delegationNik || emp?.noInduk || "-";
-                        })()}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-[80px_auto_1fr] gap-2 border-b border-gray-100 pb-1.5">
-                      <span className="text-gray-500 font-medium">Jabatan</span>
-                      <span className="text-gray-400">:</span>
-                      <span className="font-medium text-gray-800">{selectedPengajuan.delegationRole || "__________________"}</span>
-                    </div>
-                    <div className="mt-4 pt-2 text-[10px] text-gray-400 leading-tight">
-                      *Dengan ini penerima wewenang bersedia mengambil alih tanggung jawab pekerjaan selama pemohon tidak hadir.
-                    </div>
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* TANDA TANGAN */}
-              <div className="grid grid-cols-3 gap-6 text-center text-xs mt-10">
+              <div className={`grid ${selectedPengajuan.delegationName && selectedPengajuan.delegationName !== "__________________" ? "grid-cols-3" : "grid-cols-2 max-w-2xl mx-auto"} gap-6 text-center text-xs mt-10`}>
                 <div className="flex flex-col h-full justify-between">
                   <div>
                     <p className="text-gray-600 font-medium mb-1">Diajukan Oleh,</p>
@@ -4620,28 +4623,27 @@ export default function AdminDesktopPage() {
                   </div>
                 </div>
                 
-                <div className="flex flex-col h-full justify-between">
-                  <div>
-                    <p className="text-gray-600 font-medium mb-1">Penerima Pelimpahan Tugas,</p>
-                    <p className="text-[10px] text-gray-400 mb-16">Tanggal: __________________</p>
+                {selectedPengajuan.delegationName && selectedPengajuan.delegationName !== "__________________" && (
+                  <div className="flex flex-col h-full justify-between">
+                    <div>
+                      <p className="text-gray-600 font-medium mb-1">Penerima Pelimpahan Tugas,</p>
+                      <p className="text-[10px] text-gray-400 mb-16">Tanggal: __________________</p>
+                    </div>
+                    <div>
+                      <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 mx-auto w-4/5">
+                        {selectedPengajuan.delegationName}
+                      </p>
+                      <p className="text-gray-700 font-mono text-[11px] mt-1 font-semibold">
+                        {(() => {
+                          const emp = karyawanList.find(k => k.id === selectedPengajuan.delegationId || k.nama === selectedPengajuan.delegationName);
+                          const nik = selectedPengajuan.delegationNik || emp?.noInduk;
+                          return nik ? `NIK: ${nik}` : "NIK: -";
+                        })()}
+                      </p>
+                      <p className="text-gray-500 text-[10px]">{selectedPengajuan.delegationRole || "-"}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 mx-auto w-4/5">
-                      {selectedPengajuan.delegationName || "__________________"}
-                    </p>
-                    <p className="text-gray-700 font-mono text-[11px] mt-1 font-semibold">
-                      {(() => {
-                        if (!selectedPengajuan.delegationName || selectedPengajuan.delegationName === "__________________") {
-                          return "NIK: __________________";
-                        }
-                        const emp = karyawanList.find(k => k.id === selectedPengajuan.delegationId || k.nama === selectedPengajuan.delegationName);
-                        const nik = selectedPengajuan.delegationNik || emp?.noInduk;
-                        return nik ? `NIK: ${nik}` : "NIK: -";
-                      })()}
-                    </p>
-                    <p className="text-gray-500 text-[10px]">{selectedPengajuan.delegationRole || "__________________"}</p>
-                  </div>
-                </div>
+                )}
 
                 <div className="flex flex-col h-full justify-between">
                   <div>
