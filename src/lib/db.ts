@@ -12,6 +12,7 @@ const COLL_NOTIFICATIONS = "notifications";
 const COLL_AUDIT_LOGS = "audit_logs";
 const COLL_ADMINS = "admins";
 const COLL_POSITIONS = "positions";
+const COLL_SURAT_PERINGATAN = "surat_peringatan";
 
 // Fungsi abstraksi dasar (Data Access Layer) yang akan digunakan nanti.
 // Catatan: Jika db belum diinisialisasi (keys kosong), fungsi akan melempar error ringan atau mengembalikan null.
@@ -216,13 +217,24 @@ export const submitRequest = async (requestData: any) => {
   }
 };
 
-export const updateRequestStatus = async (requestId: string, status: string, alasanPenolakan: string = "") => {
+export const updateRequestStatus = async (
+  requestId: string, 
+  status: string, 
+  alasanPenolakan: string = "",
+  approverInfo?: { approverNama?: string; approverNik?: string; approverEmail?: string }
+) => {
   if (!db) return false;
   try {
     const reqRef = doc(db, COLL_REQUESTS, requestId);
     const updateData: any = { status };
     if (alasanPenolakan) {
       updateData.alasanPenolakan = alasanPenolakan;
+    }
+    if (approverInfo) {
+      if (approverInfo.approverNama) updateData.approverNama = approverInfo.approverNama;
+      if (approverInfo.approverNik) updateData.approverNik = approverInfo.approverNik;
+      if (approverInfo.approverEmail) updateData.approverEmail = approverInfo.approverEmail;
+      updateData.approvedAt = new Date().toISOString();
     }
     await updateDoc(reqRef, updateData);
     return true;
@@ -355,15 +367,24 @@ export const subscribeToSalaries = (karyawanId: string | null, callback: (data: 
   });
 };
 
-export const subscribeToNotifications = (userId: string, callback: (data: any[]) => void) => {
-  if (!db) return () => {};
-  const q = query(collection(db, COLL_NOTIFICATIONS), where("userId", "==", userId));
+export const subscribeToNotifications = (userId: string | string[], callback: (data: any[]) => void) => {
+  if (!db || !userId) return () => {};
+  const ids = Array.isArray(userId) ? userId.filter(Boolean) : [userId];
+  if (ids.length === 0) return () => {};
+
+  const q = ids.length === 1
+    ? query(collection(db, COLL_NOTIFICATIONS), where("userId", "==", ids[0]))
+    : query(collection(db, COLL_NOTIFICATIONS), where("userId", "in", ids.slice(0, 30)));
+
   return onSnapshot(q, (snapshot) => {
     const data = snapshot.docs.map(doc => ({
       id: doc.id,
       ...normalizeData(doc.data())
     }));
     callback(data);
+  }, (err) => {
+    console.warn("Gagal memuat notifikasi:", err);
+    callback([]);
   });
 };
 
@@ -483,6 +504,16 @@ export const subscribeToAuditLogs = (callback: (logs: any[]) => void) => {
   });
 };
 
+export interface AdminAccount {
+  uid: string;
+  email: string;
+  nama: string;
+  nik?: string;
+  role: 'superadmin' | 'admin';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export const checkIsAdmin = async (uid: string): Promise<boolean> => {
   if (!db || !uid) return false;
   try {
@@ -492,6 +523,53 @@ export const checkIsAdmin = async (uid: string): Promise<boolean> => {
     console.error("Gagal cek admin:", err);
     return false;
   }
+};
+
+export const checkAdminRole = async (uid: string): Promise<{ isAdmin: boolean; isSuperAdmin: boolean; role: 'superadmin' | 'admin' | null; nama?: string; nik?: string }> => {
+  if (!db || !uid) return { isAdmin: false, isSuperAdmin: false, role: null };
+  try {
+    const adminDoc = await getDoc(doc(db, COLL_ADMINS, uid));
+    if (!adminDoc.exists()) return { isAdmin: false, isSuperAdmin: false, role: null };
+    const data = adminDoc.data();
+    const isSuperAdmin = data?.role === 'superadmin' || data?.email === 'pilarss@admin.com';
+    return {
+      isAdmin: true,
+      isSuperAdmin,
+      role: isSuperAdmin ? 'superadmin' : 'admin',
+      nama: data?.nama || 'Administrator',
+      nik: data?.nik || ''
+    };
+  } catch (err) {
+    console.error("Gagal cek admin role:", err);
+    return { isAdmin: false, isSuperAdmin: false, role: null };
+  }
+};
+
+export const subscribeToAdmins = (callback: (admins: AdminAccount[]) => void) => {
+  if (!db) return () => {};
+  const q = collection(db, COLL_ADMINS);
+  return onSnapshot(q, (snapshot) => {
+    const list: AdminAccount[] = snapshot.docs.map(doc => {
+      const d = doc.data();
+      return {
+        uid: doc.id,
+        email: d.email || '',
+        nama: d.nama || 'Administrator',
+        nik: d.nik || '',
+        role: d.role === 'superadmin' ? 'superadmin' : 'admin',
+        createdAt: d.createdAt || null,
+        updatedAt: d.updatedAt || null,
+      };
+    });
+    list.sort((a, b) => {
+      if (a.role === 'superadmin' && b.role !== 'superadmin') return -1;
+      if (a.role !== 'superadmin' && b.role === 'superadmin') return 1;
+      return (a.nama || '').localeCompare(b.nama || '');
+    });
+    callback(list);
+  }, (err) => {
+    console.error("Gagal berlangganan admins:", err);
+  });
 };
 
 // === MASTER DATA POSISI / JABATAN ===
@@ -627,6 +705,127 @@ export const deletePosition = async (positionId: string): Promise<boolean> => {
     return true;
   } catch (err) {
     console.error("Gagal menghapus posisi:", err);
+    return false;
+  }
+};
+
+// === SURAT PERINGATAN (SP) ===
+export interface SuratPeringatan {
+  id?: string;
+  nomorSurat: string;
+  karyawanId: string;
+  karyawanNama: string;
+  karyawanNik: string;
+  karyawanPosisi: string;
+  tingkatSp: "Surat Teguran" | "SP 1" | "SP 2" | "SP 3";
+  alasanPelanggaran: string;
+  detailPelanggaran: string;
+  tindakanPerbaikan?: string;
+  tanggalTerbit: string;
+  berlakuMulai: string;
+  berlakuSampai: string;
+  status: "Aktif" | "Selesai" | "Dibatalkan";
+  hrdNama: string;
+  hrdNik: string;
+  hrdJabatan: string;
+  isAcknowledged: boolean;
+  acknowledgedAt?: string;
+  catatanKaryawan?: string;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
+export const subscribeToSuratPeringatan = (callback: (data: SuratPeringatan[]) => void) => {
+  if (!db) return () => {};
+  const q = query(collection(db, COLL_SURAT_PERINGATAN));
+  return onSnapshot(
+    q, 
+    (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SuratPeringatan));
+      data.sort((a, b) => (b.tanggalTerbit || "").localeCompare(a.tanggalTerbit || ""));
+      callback(data);
+    },
+    (err) => {
+      console.warn("Gagal memuat koleksi surat peringatan:", err);
+      callback([]);
+    }
+  );
+};
+
+export const subscribeToEmployeeSP = (karyawanId: string, callback: (data: SuratPeringatan[]) => void) => {
+  if (!db || !karyawanId) return () => {};
+  const q = query(collection(db, COLL_SURAT_PERINGATAN), where("karyawanId", "==", karyawanId));
+  return onSnapshot(
+    q, 
+    (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SuratPeringatan));
+      data.sort((a, b) => (b.tanggalTerbit || "").localeCompare(a.tanggalTerbit || ""));
+      callback(data);
+    },
+    (err) => {
+      console.warn("Gagal memuat surat peringatan karyawan:", err);
+      callback([]);
+    }
+  );
+};
+
+export const addSuratPeringatan = async (spData: Omit<SuratPeringatan, "id">) => {
+  if (!db) return { success: false, error: "Database tidak terinisialisasi" };
+  try {
+    const docRef = await addDoc(collection(db, COLL_SURAT_PERINGATAN), {
+      ...spData,
+      isAcknowledged: false,
+      status: spData.status || "Aktif",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    return { success: true, id: docRef.id };
+  } catch (err: any) {
+    console.error("Gagal menambahkan Surat Peringatan:", err);
+    return { success: false, error: err.message || "Gagal menyimpan Surat Peringatan" };
+  }
+};
+
+export const updateSuratPeringatan = async (spId: string, updateData: Partial<SuratPeringatan>) => {
+  if (!db) return false;
+  try {
+    const docRef = doc(db, COLL_SURAT_PERINGATAN, spId);
+    await updateDoc(docRef, {
+      ...updateData,
+      updatedAt: serverTimestamp()
+    });
+    return true;
+  } catch (err) {
+    console.error("Gagal memperbarui Surat Peringatan:", err);
+    return false;
+  }
+};
+
+export const acknowledgeSuratPeringatan = async (spId: string, catatanKaryawan?: string) => {
+  if (!db) return false;
+  try {
+    const docRef = doc(db, COLL_SURAT_PERINGATAN, spId);
+    await updateDoc(docRef, {
+      isAcknowledged: true,
+      acknowledgedAt: new Date().toISOString(),
+      ...(catatanKaryawan ? { catatanKaryawan } : {}),
+      updatedAt: serverTimestamp()
+    });
+    return true;
+  } catch (err) {
+    console.error("Gagal mengonfirmasi Surat Peringatan:", err);
+    return false;
+  }
+};
+
+export const deleteSuratPeringatan = async (spId: string) => {
+  if (!db) return false;
+  try {
+    const { deleteDoc } = await import("firebase/firestore");
+    await deleteDoc(doc(db, COLL_SURAT_PERINGATAN, spId));
+    return true;
+  } catch (err) {
+    console.error("Gagal menghapus Surat Peringatan:", err);
     return false;
   }
 };

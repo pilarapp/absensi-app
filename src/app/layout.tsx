@@ -51,6 +51,8 @@ export default function RootLayout({
           rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
         />
+        <link rel="preload" as="image" href="https://res.cloudinary.com/sgcxykbd/image/upload/v1789396132/Surat_Peringatan_2_Jufrianto_1_-1.png" />
+        <link rel="preload" as="image" href="/logo-pilar.png" />
       </head>
       <body className={`${jakartaSans.variable} antialiased`} suppressHydrationWarning>
         {children}

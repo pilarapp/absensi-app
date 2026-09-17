@@ -1,6 +1,7 @@
+const fs = require('fs');
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
-const fs = require('fs');
+
 const envFile = fs.readFileSync('.env', 'utf-8');
 const env = {};
 envFile.split('\n').forEach(line => {
@@ -11,10 +12,20 @@ envFile.split('\n').forEach(line => {
     env[key.trim()] = val;
   }
 });
-initializeApp({ credential: cert({ projectId: env.NEXT_PUBLIC_FIREBASE_PROJECT_ID, clientEmail: env.FIREBASE_CLIENT_EMAIL, privateKey: (env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n') }) });
+
+initializeApp({
+  credential: cert({
+    projectId: env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    clientEmail: env.FIREBASE_CLIENT_EMAIL,
+    privateKey: (env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n')
+  })
+});
+
 const db = getFirestore();
-db.collection('requests').get().then(snap => {
-  console.log("REQUESTS COUNT:", snap.docs.length);
-  snap.docs.forEach(d => console.log(d.id, d.data().karyawanNama, d.data().type, d.data().delegationName, d.data().status));
+db.collection('surat_peringatan').get().then(s => {
+  console.log('Total SP:', s.size);
   process.exit(0);
+}).catch(e => {
+  console.error(e);
+  process.exit(1);
 });

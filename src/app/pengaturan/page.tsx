@@ -5,7 +5,7 @@ import NotificationBell from "@/components/NotificationBell";
 import Toast from "@/components/Toast";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut, updatePassword, updateProfile, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
-import { getEmployee, updateEmployeeProfile } from "@/lib/db";
+import { getEmployee, updateEmployeeProfile, subscribeToEmployeeSP, acknowledgeSuratPeringatan, SuratPeringatan } from "@/lib/db";
 
 export default function PengaturanPage() {
   const [toastMessage, setToastMessage] = useState("");
@@ -13,6 +13,12 @@ export default function PengaturanPage() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  // Surat Peringatan (SP) State
+  const [spList, setSpList] = useState<SuratPeringatan[]>([]);
+  const [isSpModalOpen, setIsSpModalOpen] = useState(false);
+  const [selectedSp, setSelectedSp] = useState<SuratPeringatan | null>(null);
+  const [isAcknowledging, setIsAcknowledging] = useState(false);
 
   // Fullscreen Modals State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -75,6 +81,64 @@ export default function PengaturanPage() {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const unsubSp = subscribeToEmployeeSP(currentUser.id, (data) => {
+      setSpList(data);
+    });
+    return () => unsubSp();
+  }, [currentUser?.id]);
+
+  // Auto-buka modal SP saat datang dari klik notifikasi (?open=sp atau event pilar_open_sp)
+  useEffect(() => {
+    const checkAndOpenSp = (targetSpId?: string) => {
+      setIsSpModalOpen(true);
+      if (targetSpId && spList.length > 0) {
+        const found = spList.find(s => s.id === targetSpId);
+        if (found) {
+          setSelectedSp(found);
+          return;
+        }
+      }
+      if (spList.length > 0) {
+        const activeUnread = spList.find(s => s.status === "Aktif" && !s.isAcknowledged) || spList[0];
+        if (activeUnread) setSelectedSp(activeUnread);
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("open") === "sp") {
+        checkAndOpenSp(params.get("spId") || undefined);
+      }
+    }
+
+    const handleCustomOpenSp = (e: any) => {
+      checkAndOpenSp(e?.detail?.spId);
+    };
+
+    window.addEventListener("pilar_open_sp", handleCustomOpenSp);
+    return () => window.removeEventListener("pilar_open_sp", handleCustomOpenSp);
+  }, [spList]);
+
+  const handleAcknowledgeSp = async () => {
+    if (!selectedSp?.id) return;
+    setIsAcknowledging(true);
+    try {
+      const ok = await acknowledgeSuratPeringatan(selectedSp.id);
+      if (ok) {
+        showToast("Surat Peringatan berhasil dikonfirmasi secara digital.", "success");
+        setSelectedSp(prev => prev ? { ...prev, isAcknowledged: true, acknowledgedAt: new Date().toISOString() } : null);
+      } else {
+        showToast("Gagal mengonfirmasi surat. Silakan coba lagi.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan", "error");
+    } finally {
+      setIsAcknowledging(false);
+    }
+  };
 
   const openEditProfile = () => {
     setEditNama(currentUser?.nama || "");
@@ -430,6 +494,42 @@ export default function PengaturanPage() {
                 <span className="text-sm font-medium">Ubah Kata Sandi</span>
               </div>
               <i className="fa-solid fa-chevron-right text-pilar-textSecondary text-xs"></i>
+            </button>
+          </div>
+
+          {/* Menu Surat Peringatan (SP) */}
+          <div className="bg-white/5 rounded-xl border border-white/10 overflow-hidden">
+            <button 
+              onClick={() => {
+                setSelectedSp(null);
+                setIsSpModalOpen(true);
+              }}
+              className="w-full flex justify-between items-center p-4 hover:bg-white/10 transition text-left relative"
+            >
+              <div className="flex items-center space-x-3">
+                <div className="relative">
+                  <i className="fa-solid fa-triangle-exclamation text-amber-400 w-5 text-center"></i>
+                  {spList.some(s => s.status === "Aktif" && !s.isAcknowledged) && (
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full animate-ping"></span>
+                  )}
+                </div>
+                <div>
+                  <span className="text-sm font-medium block">Surat Peringatan (SP)</span>
+                  <span className="text-[11px] text-pilar-textSecondary">Catatan kedisiplinan & sanksi resmi</span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                {spList.some(s => s.status === "Aktif" && !s.isAcknowledged) ? (
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-400 font-bold border border-rose-500/30">
+                    Perlu Dikonfirmasi
+                  </span>
+                ) : (
+                  <span className="text-xs text-pilar-textSecondary">
+                    {spList.length} Dokumen
+                  </span>
+                )}
+                <i className="fa-solid fa-chevron-right text-pilar-textSecondary text-xs"></i>
+              </div>
             </button>
           </div>
 
@@ -793,6 +893,243 @@ export default function PengaturanPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* FULL-SCREEN MODAL: SURAT PERINGATAN (SP) KARYAWAN */}
+      {isSpModalOpen && (
+        <div className="absolute inset-0 z-50 bg-pilar-dark flex flex-col text-pilar-textPrimary animate-slide-up sm:rounded-[1.6rem] overflow-hidden print:static print:bg-white print:overflow-visible">
+          {/* Header (Hidden on print) */}
+          <div className="pt-10 pb-4 px-6 bg-pilar-darker border-b border-white/10 flex items-center justify-between shrink-0">
+            <button 
+              type="button"
+              onClick={() => {
+                if (selectedSp) {
+                  setSelectedSp(null);
+                } else {
+                  setIsSpModalOpen(false);
+                  if (typeof window !== "undefined" && window.location.search.includes("open=sp")) {
+                    window.history.replaceState({}, "", "/pengaturan");
+                  }
+                }
+              }}
+              className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-pilar-textSecondary hover:text-white transition-colors cursor-pointer"
+            >
+              <i className="fa-solid fa-arrow-left text-lg"></i>
+            </button>
+            <h2 className="text-base font-bold text-white font-heading">
+              {selectedSp ? "Pemberitahuan SP" : "Surat Peringatan (SP)"}
+            </h2>
+            <div className="w-10"></div>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto scrollable-content p-4 pb-28">
+            {selectedSp ? (
+              /* DETAIL PEMBERITAHUAN SP KARYAWAN */
+              <div className="w-full space-y-4">
+                {/* Header Card Pemberitahuan */}
+                <div className="bg-white/5 border border-white/10 rounded-3xl p-5 backdrop-blur-sm space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+                      selectedSp.tingkatSp === "Surat Teguran" ? "bg-white/10 text-white border border-white/20" :
+                      selectedSp.tingkatSp === "SP 1" ? "bg-pilar-gold/20 text-pilar-gold border border-pilar-gold/30" :
+                      selectedSp.tingkatSp === "SP 2" ? "bg-pilar-gold text-pilar-darker border border-pilar-gold" :
+                      "bg-pilar-darker text-pilar-gold border border-pilar-gold"
+                    }`}>
+                      {selectedSp.tingkatSp}
+                    </span>
+                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                      selectedSp.status === "Aktif" ? "bg-pilar-gold/20 text-pilar-gold border border-pilar-gold/30" :
+                      "bg-white/10 text-gray-400 border border-white/10"
+                    }`}>
+                      {selectedSp.status}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-pilar-textSecondary block">Nomor Dokumen:</span>
+                    <p className="font-mono font-bold text-white text-sm mt-0.5">{selectedSp.nomorSurat}</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-white/10 text-xs">
+                    <div>
+                      <span className="text-[10px] text-pilar-textSecondary block">Tanggal Terbit:</span>
+                      <span className="font-semibold text-white">
+                        {new Date(selectedSp.tanggalTerbit).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-pilar-textSecondary block">Masa Berlaku:</span>
+                      <span className="font-semibold text-pilar-gold">
+                        s/d {new Date(selectedSp.berlakuSampai).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Rincian Pelanggaran */}
+                <div className="bg-white/5 border border-white/10 rounded-3xl p-5 backdrop-blur-sm space-y-3.5">
+                  <h3 className="text-xs font-bold text-pilar-gold uppercase tracking-wider flex items-center gap-2">
+                    <i className="fa-solid fa-triangle-exclamation"></i>
+                    <span>Rincian Pembinaan & Pelanggaran</span>
+                  </h3>
+
+                  <div className="bg-black/20 p-3.5 rounded-2xl border border-white/5 space-y-1">
+                    <span className="text-[10px] text-pilar-textSecondary block">Perihal Pelanggaran:</span>
+                    <p className="text-white text-xs font-semibold leading-relaxed">{selectedSp.alasanPelanggaran}</p>
+                  </div>
+
+                  {selectedSp.detailPelanggaran && (
+                    <div className="bg-black/20 p-3.5 rounded-2xl border border-white/5 space-y-1">
+                      <span className="text-[10px] text-pilar-textSecondary block">Kronologi / Uraian:</span>
+                      <p className="text-gray-300 text-xs whitespace-pre-line leading-relaxed">{selectedSp.detailPelanggaran}</p>
+                    </div>
+                  )}
+
+                  {selectedSp.tindakanPerbaikan && (
+                    <div className="bg-black/20 p-3.5 rounded-2xl border border-white/5 space-y-1">
+                      <span className="text-[10px] text-pilar-textSecondary block">Arahan / Tindakan Perbaikan:</span>
+                      <p className="text-gray-300 text-xs leading-relaxed">{selectedSp.tindakanPerbaikan}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Banner Informasi Cetak Fisik Manual */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 text-xs space-y-1.5">
+                  <div className="flex items-center gap-2 text-pilar-gold font-bold text-[11px]">
+                    <i className="fa-solid fa-circle-info"></i>
+                    <span>Informasi Dokumen Fisik</span>
+                  </div>
+                  <p className="text-[11px] text-pilar-textSecondary leading-relaxed">
+                    Surat Peringatan fisik dicetak secara manual dan diserahkan langsung oleh Manajemen / HRD PT. Pilar Sentra Solusi. Halaman ini berfungsi sebagai pemberitahuan resmi di akun aplikasi Anda.
+                  </p>
+                </div>
+
+                {/* Konfirmasi Tanda Telah Membaca */}
+                <div>
+                  {!selectedSp.isAcknowledged && selectedSp.status === "Aktif" ? (
+                    <div className="p-4 bg-white/5 border border-pilar-gold/30 rounded-2xl text-center space-y-3">
+                      <p className="text-[11px] text-pilar-textSecondary leading-relaxed">
+                        Silakan tekan tombol di bawah sebagai tanda bahwa Anda telah membaca dan memahami pemberitahuan ini.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={isAcknowledging}
+                        onClick={handleAcknowledgeSp}
+                        className="w-full py-3.5 px-4 rounded-2xl bg-pilar-gold hover:bg-amber-400 text-pilar-darker font-black text-xs uppercase tracking-wider shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
+                      >
+                        {isAcknowledging ? (
+                          <>
+                            <i className="fa-solid fa-spinner fa-spin"></i>
+                            <span>Mengonfirmasi...</span>
+                          </>
+                        ) : (
+                          <>
+                            <i className="fa-solid fa-circle-check text-sm"></i>
+                            <span>Saya Mengerti & Telah Membaca</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-white/5 border border-pilar-gold/30 rounded-2xl flex items-center gap-3 text-pilar-gold text-xs">
+                      <i className="fa-solid fa-circle-check text-xl shrink-0"></i>
+                      <div>
+                        <span className="font-bold block text-xs">Pemberitahuan Telah Dikonfirmasi</span>
+                        <span className="text-[10px] text-pilar-textSecondary">
+                          Tercatat dibaca pada {selectedSp.acknowledgedAt ? new Date(selectedSp.acknowledgedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : "-"}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* DAFTAR RIWAYAT SP KARYAWAN */
+              <div className="w-full space-y-3">
+                {spList.length === 0 ? (
+                  <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center backdrop-blur-sm my-6">
+                    <div className="w-14 h-14 rounded-full bg-pilar-gold/10 text-pilar-gold flex items-center justify-center text-2xl mx-auto mb-3 border border-pilar-gold/30">
+                      <i className="fa-solid fa-shield-check"></i>
+                    </div>
+                    <h3 className="font-bold text-sm text-white mb-1">Catatan Disiplin Bersih</h3>
+                    <p className="text-[11px] text-pilar-textSecondary leading-relaxed">
+                      Anda tidak memiliki riwayat Surat Peringatan (SP). Pertahankan kinerja dan dedikasi terbaik Anda!
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="p-3 bg-white/5 border border-white/10 rounded-xl text-[11px] text-pilar-textSecondary flex items-start gap-2">
+                      <i className="fa-solid fa-circle-info text-pilar-gold mt-0.5 shrink-0"></i>
+                      <span>
+                        Daftar Surat Peringatan resmi yang diterbitkan oleh Manajemen PT. Pilar Sentra Solusi untuk akun Anda.
+                      </span>
+                    </div>
+
+                    {spList.map((sp) => {
+                      const badgeColor = 
+                        sp.tingkatSp === "Surat Teguran" ? "bg-white/10 text-white border-white/20" :
+                        sp.tingkatSp === "SP 1" ? "bg-pilar-gold/20 text-pilar-gold border-pilar-gold/30" :
+                        sp.tingkatSp === "SP 2" ? "bg-pilar-gold text-pilar-darker border-pilar-gold" :
+                        "bg-pilar-darker text-pilar-gold border-pilar-gold";
+
+                      return (
+                        <div key={sp.id} className="bg-white/5 border border-white/10 rounded-2xl p-3.5 backdrop-blur-sm space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border uppercase tracking-wider ${badgeColor}`}>
+                              {sp.tingkatSp}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              sp.status === "Aktif" ? "bg-pilar-gold/20 text-pilar-gold border border-pilar-gold/30" :
+                              "bg-white/10 text-gray-400 border border-white/10"
+                            }`}>
+                              {sp.status}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span className="font-mono text-xs font-bold text-white block truncate">{sp.nomorSurat}</span>
+                            <span className="text-[10px] text-pilar-textSecondary block mt-0.5">
+                              Diterbitkan: {sp.tanggalTerbit} • Berlaku s/d {sp.berlakuSampai}
+                            </span>
+                          </div>
+
+                          <div className="p-2 bg-black/20 rounded-xl border border-white/5 text-xs text-gray-300">
+                            <span className="text-gray-400 text-[10px] block mb-0.5">Perihal Pelanggaran:</span>
+                            <p className="font-medium text-white text-xs">{sp.alasanPelanggaran}</p>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1">
+                            {sp.isAcknowledged ? (
+                              <div className="text-pilar-gold text-[11px] flex items-center gap-1 font-medium">
+                                <i className="fa-solid fa-circle-check text-[10px]"></i>
+                                <span>Diterima digital</span>
+                              </div>
+                            ) : (
+                              <div className="text-white text-[11px] flex items-center gap-1 font-bold animate-pulse">
+                                <i className="fa-solid fa-triangle-exclamation text-pilar-gold text-[10px]"></i>
+                                <span>Perlu konfirmasi Anda</span>
+                              </div>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedSp(sp)}
+                              className="px-2.5 py-1.5 rounded-xl bg-pilar-darker border border-pilar-gold/40 text-pilar-gold font-bold text-xs hover:bg-pilar-gold hover:text-pilar-darker transition-all flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>Buka Dokumen</span>
+                              <i className="fa-solid fa-arrow-right text-[9px]"></i>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -15,14 +15,23 @@ service cloud.firestore {
       );
     }
 
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.isSuperAdmin == true || 
+        request.auth.token.email == 'pilarss@admin.com' ||
+        (exists(/databases/$(database)/documents/admins/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'superadmin')
+      );
+    }
+
     function isEmployee(employeeId) {
       return isAuthenticated() && request.auth.uid == employeeId;
     }
 
-    // 1. Koleksi Admins: Hanya admin yang bisa membaca dan memodifikasi
+    // 1. Koleksi Admins: Dibaca untuk autentikasi, hanya Super Admin yang bisa menambah/mengubah/menghapus
     match /admins/{adminId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow write: if isSuperAdmin();
     }
 
     // 2. Koleksi Employees: Admin memiliki akses penuh, karyawan hanya membaca data diri
@@ -67,10 +76,18 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
 
-    // 9. Koleksi Audit Logs: Bersifat IMMUTABLE (hanya bisa dibuat dan dibaca oleh admin, tidak bisa diedit/dihapus siapapun)
+    // 9. Koleksi Audit Logs: Bersifat IMMUTABLE (dibuat oleh admin, dibaca KHUSUS oleh Super Admin)
     match /audit_logs/{logId} {
-      allow read, create: if isAdmin();
+      allow read: if isSuperAdmin();
+      allow create: if isAdmin();
       allow update, delete: if false;
+    }
+
+    // 10. Koleksi Surat Peringatan (SP): Dikelola oleh Admin, dibaca oleh karyawan bersangkutan & Admin
+    match /surat_peringatan/{spId} {
+      allow read: if isAuthenticated() && (resource.data.karyawanId == request.auth.uid || isAdmin());
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isAuthenticated() && resource.data.karyawanId == request.auth.uid);
     }
   }
 }

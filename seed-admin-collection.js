@@ -34,24 +34,42 @@ async function seedAdmins() {
     'admin@pt-pilar.co.id',
     'pilar@gmail.com',
     'superadmin@pt-pilar.co.id',
+    'pilarss@admin.com',
   ];
 
   for (const u of list.users) {
     console.log(`Found Auth User: ${u.email} (${u.uid})`);
     // If email contains "admin" or is in defaultAdminEmails
     if (u.email && (u.email.includes('admin') || defaultAdminEmails.includes(u.email))) {
+      let defaultNik = 'ADM-001';
+      let defaultNama = u.displayName || 'Administrator';
+      if (u.email.toLowerCase() === 'pilarss@admin.com') {
+        defaultNik = 'SA-001';
+        defaultNama = 'Super Admin PT. PILAR';
+      } else if (u.email.toLowerCase() === 'admin@pt-pilar.co.id') {
+        defaultNik = 'HRD-001';
+        defaultNama = 'HRD Manager PT. PILAR';
+      } else if (u.email.toLowerCase() === 'pilar@gmail.com') {
+        defaultNik = 'DIR-001';
+        defaultNama = 'Fandy Gailea';
+      }
+
+      const existingDoc = await db.collection('admins').doc(u.uid).get();
+      const existingData = existingDoc.exists ? existingDoc.data() : {};
+
       await db.collection('admins').doc(u.uid).set({
         uid: u.uid,
         email: u.email,
-        nama: u.displayName || 'Administrator',
-        role: 'superadmin',
-        createdAt: new Date().toISOString(),
+        nama: existingData?.nama || defaultNama,
+        nik: existingData?.nik || defaultNik,
+        role: existingData?.role || 'superadmin',
+        createdAt: existingData?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }, { merge: true });
       
       // Set custom claims as well for enterprise RBAC
       await auth.setCustomUserClaims(u.uid, { role: 'admin' });
-      console.log(`✅ Registered as ADMIN: ${u.email} (${u.uid})`);
+      console.log(`✅ Registered as ADMIN: ${u.email} (${u.uid}) - NIK: ${existingData?.nik || defaultNik}`);
     }
   }
 

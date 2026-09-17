@@ -14,7 +14,10 @@ export async function POST(req: Request) {
 
     // Check in 'admins' collection
     const adminDoc = await adminDb.collection('admins').doc(uid).get();
+    const adminData = adminDoc.exists ? adminDoc.data() : null;
     const isAdmin = adminDoc.exists || decodedToken.role === 'admin';
+    const isSuperAdmin = isAdmin && (adminData?.role === 'superadmin' || decodedToken.isSuperAdmin === true || email === 'pilarss@admin.com');
+    const adminRole = isSuperAdmin ? 'superadmin' : (isAdmin ? 'admin' : null);
 
     // Check in 'employees' collection
     const empDoc = await adminDb.collection('employees').doc(uid).get();
@@ -34,7 +37,11 @@ export async function POST(req: Request) {
       success: true,
       uid,
       email,
+      nama: adminData?.nama || employeeData?.nama || decodedToken.name || '',
+      nik: adminData?.nik || employeeData?.nik || employeeData?.noInduk || '',
       isAdmin,
+      isSuperAdmin: !!isSuperAdmin,
+      adminRole: adminRole || (isAdmin ? 'admin' : null),
       isEmployee,
       employeeStatus: employeeData?.status || null,
       role: isAdmin ? 'admin' : (isEmployee ? 'karyawan' : 'unknown')

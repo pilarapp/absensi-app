@@ -101,9 +101,15 @@ export default function AdminLoginPage() {
           if (db) {
             const admDoc = await getDoc(doc(db, "admins", userCredential.user.uid));
             if (admDoc.exists()) {
+              const admData = admDoc.data();
+              const isSuper = admData?.role === 'superadmin' || email.toLowerCase() === 'pilarss@admin.com';
               roleData = {
                 isAdmin: true,
-                role: "admin"
+                isSuperAdmin: isSuper,
+                adminRole: isSuper ? "superadmin" : "admin",
+                role: "admin",
+                nama: admData?.nama || "Administrator",
+                nik: admData?.nik || ""
               };
             }
           }
@@ -115,23 +121,31 @@ export default function AdminLoginPage() {
       if (!roleData || !roleData.isAdmin) {
         await auth.signOut();
         localStorage.removeItem("admin_email");
+        localStorage.removeItem("admin_role");
+        localStorage.removeItem("admin_name");
+        localStorage.removeItem("admin_nik");
         setError("Akses Ditolak: Akun Anda bukan Administrator.");
         setIsLoading(false);
         return;
       }
+
+      const assignedAdminRole = roleData.adminRole || (roleData.isSuperAdmin ? 'superadmin' : 'admin');
 
       // Set cookie session admin untuk Next.js Middleware
       try {
         await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: 'admin' }),
+          body: JSON.stringify({ role: 'admin', adminRole: assignedAdminRole }),
         });
       } catch (sessionErr) {
         console.warn("Gagal set admin session cookie:", sessionErr);
       }
 
       localStorage.setItem("admin_email", email);
+      localStorage.setItem("admin_role", assignedAdminRole);
+      if (roleData.nama) localStorage.setItem("admin_name", roleData.nama);
+      if (roleData.nik) localStorage.setItem("admin_nik", roleData.nik);
       router.push("/admin");
     } catch (err: any) {
       if (err.code === "auth/invalid-credential" || err.code === "auth/user-not-found" || err.code === "auth/wrong-password") {

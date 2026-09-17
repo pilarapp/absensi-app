@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import NotificationBell from "@/components/NotificationBell";
-import { subscribeToSalaries } from "@/lib/db";
+import { subscribeToSalaries, getEmployee } from "@/lib/db";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
@@ -11,6 +11,11 @@ type SlipGaji = {
   id: string;
   karyawanId: string;
   nama: string;
+  nik?: string;
+  karyawanNik?: string;
+  posisi?: string;
+  jabatan?: string;
+  karyawanPosisi?: string;
   tanggal: string;
   gajiPokok: number;
   potongan: number;
@@ -20,19 +25,74 @@ type SlipGaji = {
   bpjsTkRate?: number;
   bpjsKesRate?: number;
   alpa: number;
+  // Denda absensi & kehadiran
+  tlm?: number;
+  tam?: number;
+  tap?: number;
+  dendaTlm?: number;
+  dendaTam?: number;
+  dendaTap?: number;
+  totalDenda?: number;
+  izin?: number;
+  potonganIzin?: number;
+  totalPotonganKehadiran?: number;
   gajiBersih: number;
+  hrdNama?: string;
+  hrdNik?: string;
   createdAt?: string;
 };
 
 export default function GajiPage() {
   const [riwayat, setRiwayat] = useState<SlipGaji[]>([]);
   const [selectedSlip, setSelectedSlip] = useState<SlipGaji | null>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
+
+  const getPenerimaDetails = (slip: SlipGaji | null) => {
+    if (!slip) return { nik: "-", jabatan: "Karyawan" };
+    let nik = slip.nik || slip.karyawanNik;
+    let jabatan = slip.jabatan || slip.posisi || slip.karyawanPosisi;
+
+    if (!nik || !jabatan) {
+      if (userProfile && (userProfile.id === slip.karyawanId || userProfile.nama === slip.nama)) {
+        if (!nik) nik = userProfile.noInduk;
+        if (!jabatan) jabatan = userProfile.posisi;
+      }
+    }
+
+    if (!nik || !jabatan) {
+      try {
+        const savedKaryawan = localStorage.getItem("pilar_karyawan");
+        if (savedKaryawan) {
+          const list = JSON.parse(savedKaryawan);
+          const found = list.find((k: any) => k.id === slip.karyawanId || k.nama === slip.nama);
+          if (found) {
+            if (!nik) nik = found.noInduk;
+            if (!jabatan) jabatan = found.posisi;
+          }
+        }
+      } catch {}
+    }
+
+    return {
+      nik: nik || "-",
+      jabatan: jabatan || "Karyawan"
+    };
+  };
 
   useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem("pilar_cached_employee");
+      if (cached) setUserProfile(JSON.parse(cached));
+    } catch {}
+
     let unsubscribeSalaries: any;
     
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
+        try {
+          const emp = await getEmployee(user.uid);
+          if (emp) setUserProfile(emp);
+        } catch {}
         unsubscribeSalaries = subscribeToSalaries(user.uid, (data) => {
           if (data && data.length > 0) {
             data.sort((a, b) => new Date(b.createdAt || b.tanggal).getTime() - new Date(a.createdAt || a.tanggal).getTime());
@@ -63,6 +123,36 @@ export default function GajiPage() {
       if (unsubscribeSalaries) unsubscribeSalaries();
     };
   }, []);
+
+  // Auto-open Slip Modal when navigated from notification with ?open=slip or via custom event
+  useEffect(() => {
+    const handleCheckOpenSlip = (targetSlipId?: string) => {
+      if (riwayat.length > 0) {
+        if (targetSlipId) {
+          const found = riwayat.find(s => s.id === targetSlipId);
+          if (found) {
+            setSelectedSlip(found);
+            return;
+          }
+        }
+        setSelectedSlip(riwayat[0]);
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("open") === "slip") {
+        handleCheckOpenSlip(params.get("slipId") || undefined);
+      }
+    }
+
+    const handleCustomOpenSlip = (e: any) => {
+      handleCheckOpenSlip(e?.detail?.slipId);
+    };
+
+    window.addEventListener("pilar_open_slip", handleCustomOpenSlip);
+    return () => window.removeEventListener("pilar_open_slip", handleCustomOpenSlip);
+  }, [riwayat]);
 
   return (
     <>
@@ -175,7 +265,12 @@ export default function GajiPage() {
                 </div>
                 <button 
                   type="button"
-                  onClick={() => setSelectedSlip(null)}
+                  onClick={() => {
+                    setSelectedSlip(null);
+                    if (typeof window !== "undefined" && window.location.search.includes("open=slip")) {
+                      window.history.replaceState({}, "", "/gaji");
+                    }
+                  }}
                   className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white flex items-center justify-center transition-colors"
                 >
                   <i className="fa-solid fa-xmark text-sm"></i>
@@ -201,6 +296,11 @@ export default function GajiPage() {
                 <div>
                   <span className="text-[10px] text-gray-400 block uppercase font-bold tracking-wider">Nama Karyawan</span>
                   <span className="font-extrabold text-gray-800 text-sm">{selectedSlip.nama}</span>
+                  <div className="text-[11px] text-gray-500 font-medium mt-0.5 flex items-center gap-2">
+                    <span className="font-mono">NIK: {getPenerimaDetails(selectedSlip).nik}</span>
+                    <span>•</span>
+                    <span>{getPenerimaDetails(selectedSlip).jabatan}</span>
+                  </div>
                 </div>
                 <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
                   Lunas
@@ -228,15 +328,55 @@ export default function GajiPage() {
                   <span>Potongan (Deductions)</span>
                 </div>
                 <div className="space-y-2 bg-gray-50/50 rounded-xl p-3 border border-gray-100 text-xs">
-                  {/* Potongan Alpa */}
+                  {/* Denda Keterlambatan Masuk (TLM) */}
+                  {(selectedSlip.tlm || 0) > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-600">Terlambat Masuk (TLM: {selectedSlip.tlm}x)</span>
+                      <span className="font-bold text-red-600">
+                        - Rp {new Intl.NumberFormat('id-ID').format(selectedSlip.dendaTlm || (((selectedSlip.tlm || 0) * 16000)))}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Denda Tidak Absen Masuk (TAM) */}
+                  {(selectedSlip.tam || 0) > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-600">Tidak Absen Masuk (TAM: {selectedSlip.tam}x)</span>
+                      <span className="font-bold text-red-600">
+                        - Rp {new Intl.NumberFormat('id-ID').format(selectedSlip.dendaTam || (((selectedSlip.tam || 0) * 25000)))}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Denda Tidak Absen Pulang (TAP) */}
+                  {(selectedSlip.tap || 0) > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-600">Tidak Absen Pulang (TAP: {selectedSlip.tap}x)</span>
+                      <span className="font-bold text-red-600">
+                        - Rp {new Intl.NumberFormat('id-ID').format(selectedSlip.dendaTap || (((selectedSlip.tap || 0) * 25000)))}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Potongan Alpa (A) */}
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Potongan Alpa ({selectedSlip.alpa || 0} Hari)</span>
+                    <span className="text-gray-600">Alpha / Tanpa Ket. ({selectedSlip.alpa || 0} Hari)</span>
                     <span className={(selectedSlip.potonganAlpa || 0) > 0 ? "font-bold text-red-600" : "font-medium text-gray-400"}>
                       {(selectedSlip.potonganAlpa || 0) > 0 
                         ? `- Rp ${new Intl.NumberFormat('id-ID').format(selectedSlip.potonganAlpa!)}` 
                         : "Rp 0"}
                     </span>
                   </div>
+
+                  {/* Potongan Izin Pribadi (I) */}
+                  {(selectedSlip.izin || 0) > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-600">Izin Pribadi (I: {selectedSlip.izin} Hari)</span>
+                      <span className="font-bold text-red-600">
+                        - Rp {new Intl.NumberFormat('id-ID').format(selectedSlip.potonganIzin || (((selectedSlip.izin || 0) * 144818)))}
+                      </span>
+                    </div>
+                  )}
 
                   {/* BPJS Ketenagakerjaan */}
                   <div className="flex justify-between items-center">
@@ -322,20 +462,14 @@ export default function GajiPage() {
         style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}
       >
         {/* KOP SURAT PERUSAHAAN */}
-        <div className="flex items-center justify-between border-b-2 border-pilar-darker pb-4 mb-6">
-          <div className="flex items-center space-x-4">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img 
-              src="https://res.cloudinary.com/sgcxykbd/image/upload/v1788834500/logo_horizontal_2.png" 
-              alt="Logo PT. Pilar Sentra Solusi" 
-              className="h-14 object-contain" 
-            />
-          </div>
-          <div className="text-right">
-            <h1 className="text-xl font-black tracking-tight text-pilar-darker uppercase">PT. PILAR SENTRA SOLUSI</h1>
-            <p className="text-xs text-gray-600 font-semibold">General Contractor & IT Solutions</p>
-            <p className="text-[11px] text-gray-500">Grand Slipi Tower Lt. 9, Jakarta Barat 11480 | info@pilarsentrasolusi.com</p>
-          </div>
+        <div className="border-b-2 border-pilar-darker pb-4 mb-6">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img 
+            src="https://res.cloudinary.com/sgcxykbd/image/upload/v1789396132/Surat_Peringatan_2_Jufrianto_1_-1.png" 
+            alt="Logo PT. Pilar Sentra Solusi" 
+            className="h-[73px] object-contain" 
+            onError={(e) => { e.currentTarget.src = '/logo-pilar.png'; }}
+          />
         </div>
 
         {/* JUDUL SLIP GAJI */}
@@ -353,6 +487,16 @@ export default function GajiPage() {
               <span className="text-gray-600 font-medium">Nama Karyawan</span>
               <span className="text-gray-400">:</span>
               <span className="font-bold text-gray-900 uppercase">{selectedSlip.nama}</span>
+            </div>
+            <div className="grid grid-cols-[120px_auto_1fr] gap-2">
+              <span className="text-gray-600 font-medium">NIK Karyawan</span>
+              <span className="text-gray-400">:</span>
+              <span className="font-mono font-bold text-gray-800">{getPenerimaDetails(selectedSlip).nik}</span>
+            </div>
+            <div className="grid grid-cols-[120px_auto_1fr] gap-2">
+              <span className="text-gray-600 font-medium">Jabatan / Posisi</span>
+              <span className="text-gray-400">:</span>
+              <span className="font-bold text-gray-800">{getPenerimaDetails(selectedSlip).jabatan}</span>
             </div>
             <div className="grid grid-cols-[120px_auto_1fr] gap-2">
               <span className="text-gray-600 font-medium">Nomor Slip</span>
@@ -378,7 +522,7 @@ export default function GajiPage() {
         <div className="grid grid-cols-2 gap-6 mb-6">
           {/* Kolom Kiri: Penghasilan */}
           <div className="border border-gray-300 rounded-xl overflow-hidden">
-            <div className="bg-pilar-darker text-pilar-gold font-bold px-4 py-2.5 text-xs uppercase tracking-wider flex justify-between items-center">
+            <div className="bg-[#114289] text-white font-bold px-4 py-2.5 text-xs uppercase tracking-wider flex justify-between items-center" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
               <span>A. Penghasilan (Earnings)</span>
               <i className="fa-solid fa-circle-plus text-xs"></i>
             </div>
@@ -404,19 +548,62 @@ export default function GajiPage() {
 
           {/* Kolom Kanan: Potongan */}
           <div className="border border-gray-300 rounded-xl overflow-hidden">
-            <div className="bg-pilar-darker text-pilar-gold font-bold px-4 py-2.5 text-xs uppercase tracking-wider flex justify-between items-center">
+            <div className="bg-[#114289] text-white font-bold px-4 py-2.5 text-xs uppercase tracking-wider flex justify-between items-center" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
               <span>B. Potongan (Deductions)</span>
               <i className="fa-solid fa-circle-minus text-xs"></i>
             </div>
             <div className="p-4 space-y-2 text-xs">
+              {/* Denda Keterlambatan Masuk (TLM) */}
+              {(selectedSlip.tlm || 0) > 0 && (
+                <div className="flex justify-between items-center py-1 border-b border-gray-100">
+                  <span className="text-gray-700">Terlambat Masuk (TLM: {selectedSlip.tlm}x)</span>
+                  <span className="font-bold text-red-600">
+                    - Rp {new Intl.NumberFormat('id-ID').format(selectedSlip.dendaTlm || (((selectedSlip.tlm || 0) * 16000)))}
+                  </span>
+                </div>
+              )}
+
+              {/* Denda Tidak Absen Masuk (TAM) */}
+              {(selectedSlip.tam || 0) > 0 && (
+                <div className="flex justify-between items-center py-1 border-b border-gray-100">
+                  <span className="text-gray-700">Tidak Absen Masuk (TAM: {selectedSlip.tam}x)</span>
+                  <span className="font-bold text-red-600">
+                    - Rp {new Intl.NumberFormat('id-ID').format(selectedSlip.dendaTam || (((selectedSlip.tam || 0) * 25000)))}
+                  </span>
+                </div>
+              )}
+
+              {/* Denda Tidak Absen Pulang (TAP) */}
+              {(selectedSlip.tap || 0) > 0 && (
+                <div className="flex justify-between items-center py-1 border-b border-gray-100">
+                  <span className="text-gray-700">Tidak Absen Pulang (TAP: {selectedSlip.tap}x)</span>
+                  <span className="font-bold text-red-600">
+                    - Rp {new Intl.NumberFormat('id-ID').format(selectedSlip.dendaTap || (((selectedSlip.tap || 0) * 25000)))}
+                  </span>
+                </div>
+              )}
+
+              {/* Potongan Alpha (A) */}
               <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                <span className="text-gray-700">Potongan Alpa ({selectedSlip.alpa || 0} Hari)</span>
+                <span className="text-gray-700">Alpha / Tanpa Ket. ({selectedSlip.alpa || 0} Hari)</span>
                 <span className={(selectedSlip.potonganAlpa || 0) > 0 ? "font-bold text-red-600" : "text-gray-500"}>
                   {(selectedSlip.potonganAlpa || 0) > 0 
                     ? `- Rp ${new Intl.NumberFormat('id-ID').format(selectedSlip.potonganAlpa!)}` 
                     : "Rp 0"}
                 </span>
               </div>
+
+              {/* Potongan Izin Pribadi (I) */}
+              {(selectedSlip.izin || 0) > 0 && (
+                <div className="flex justify-between items-center py-1 border-b border-gray-100">
+                  <span className="text-gray-700">Izin Pribadi (I: {selectedSlip.izin} Hari)</span>
+                  <span className="font-bold text-red-600">
+                        - Rp {new Intl.NumberFormat('id-ID').format(selectedSlip.potonganIzin || (((selectedSlip.izin || 0) * 144818)))}
+                  </span>
+                </div>
+              )}
+
+              {/* BPJS Ketenagakerjaan */}
               <div className="flex justify-between items-center py-1 border-b border-gray-100">
                 <span className="text-gray-700">BPJS Ketenagakerjaan ({selectedSlip.bpjsTkRate ?? 2}%)</span>
                 <span className={(selectedSlip.potonganBpjsTk || 0) > 0 ? "font-bold text-red-600" : "text-gray-500"}>
@@ -425,6 +612,8 @@ export default function GajiPage() {
                     : "Rp 0"}
                 </span>
               </div>
+
+              {/* BPJS Kesehatan */}
               <div className="flex justify-between items-center py-1 border-b border-gray-100">
                 <span className="text-gray-700">BPJS Kesehatan ({selectedSlip.bpjsKesRate ?? 1}%)</span>
                 <span className={(selectedSlip.potonganBpjsKes || 0) > 0 ? "font-bold text-red-600" : "text-gray-500"}>
@@ -433,6 +622,8 @@ export default function GajiPage() {
                     : "Rp 0"}
                 </span>
               </div>
+
+              {/* Total Potongan */}
               <div className="flex justify-between items-center pt-3 border-t border-gray-300 font-extrabold text-red-600 text-sm">
                 <span className="text-gray-800">Total Potongan (B)</span>
                 <span>
@@ -466,23 +657,48 @@ export default function GajiPage() {
         {/* TANDA TANGAN */}
         <div className="grid grid-cols-2 gap-12 mt-12 text-center text-xs">
           <div>
+            <p className="text-gray-500 mb-1 invisible select-none text-xs">&nbsp;</p>
             <p className="text-gray-600 mb-20 font-medium">Penerima (Karyawan),</p>
             <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 inline-block min-w-[200px] uppercase">
               {selectedSlip.nama}
+            </p>
+            <p className="text-gray-700 font-mono text-[11px] mt-1 font-semibold">
+              {getPenerimaDetails(selectedSlip).nik ? `NIK: ${getPenerimaDetails(selectedSlip).nik}` : "NIK: -"}
+            </p>
+            <p className="text-gray-400 text-[10px]">
+              {getPenerimaDetails(selectedSlip).jabatan}
             </p>
           </div>
           <div>
             <p className="text-gray-500 mb-1">Jakarta, {selectedSlip.tanggal}</p>
             <p className="text-gray-600 mb-20 font-medium">Disahkan oleh (HRD & Finance),</p>
-            <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 inline-block min-w-[200px]">
-              PT. PILAR SENTRA SOLUSI
+            <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 inline-block min-w-[200px] uppercase">
+              {selectedSlip.hrdNama || "PT. PILAR SENTRA SOLUSI"}
             </p>
+            <p className="text-gray-700 font-mono text-[11px] mt-1 font-semibold">
+              {selectedSlip.hrdNik ? `NIK: ${selectedSlip.hrdNik}` : "HRD & Finance Manager"}
+            </p>
+            <p className="text-gray-400 text-[10px]">HRD & Finance</p>
           </div>
         </div>
 
-        {/* FOOTER */}
-        <div className="mt-14 pt-4 border-t border-gray-200 text-center text-[10px] text-gray-400 italic">
-          Dokumen ini diterbitkan secara resmi melalui Sistem Payroll Elektronik PT. Pilar Sentra Solusi dan merupakan bukti penerimaan gaji yang sah.
+        {/* FOOTER BAR DOKUMEN */}
+        <div 
+          className="mt-14 px-4 py-2.5 bg-[#114289] text-white flex flex-wrap sm:flex-nowrap items-center justify-between text-[10px] md:text-[11px] gap-3"
+          style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}
+        >
+          <div className="flex items-center gap-2">
+            <i className="fa-solid fa-location-dot text-xs shrink-0"></i>
+            <span>Jalan Hamadun gailea, Fagudu, Kepulauan Sula, Maluku Utara</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <i className="fa-solid fa-envelope text-xs shrink-0"></i>
+            <span>pilarsentrasolusi@gmail.com</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <i className="fa-solid fa-phone text-xs shrink-0"></i>
+            <span>0822-1037-1774</span>
+          </div>
         </div>
       </div>
     )}

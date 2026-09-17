@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { subscribeToNotifications, markNotificationRead } from "@/lib/db";
+import { subscribeToNotifications, markNotificationRead, subscribeToEmployeeSP, SuratPeringatan } from "@/lib/db";
 
 type Toast = {
   id: number;
@@ -11,59 +12,165 @@ type Toast = {
   type: "success" | "error";
 };
 
+type BellNotification = {
+  id: string | number;
+  msg: string;
+  time: string;
+  isRead?: boolean;
+  url?: string;
+  isSp?: boolean;
+  isGaji?: boolean;
+  createdAt?: string;
+};
+
 export default function NotificationBell() {
-  const [notifications, setNotifications] = useState<{id: number, msg: string, time: string, isRead?: boolean, url?: string}[]>([]);
+  const router = useRouter();
+  const [notifications, setNotifications] = useState<BellNotification[]>([]);
   const [showNotif, setShowNotif] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const [userId, setUserId] = useState<string | null>(null);
+  const [userIds, setUserIds] = useState<string[]>([]);
+  const [dbNotifications, setDbNotifications] = useState<BellNotification[]>([]);
+  const [spNotifications, setSpNotifications] = useState<BellNotification[]>([]);
 
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
         const { getEmployee } = await import("@/lib/db");
         const emp = await getEmployee(user.uid);
-        if (emp && (emp.karyawanId || emp.noInduk)) {
-          setUserId(emp.karyawanId || emp.noInduk);
-        } else {
-          setUserId(user.uid);
-        }
+        const ids = new Set<string>();
+        ids.add(user.uid);
+        if (emp?.id) ids.add(emp.id);
+        if (emp?.karyawanId) ids.add(emp.karyawanId);
+        if (emp?.noInduk) ids.add(emp.noInduk);
+        setUserIds(Array.from(ids));
       } else {
-        setUserId(null);
+        setUserIds([]);
       }
     });
     return () => unsubAuth();
   }, []);
 
+  // Listen to Firestore Notifications
   useEffect(() => {
-    if (!userId) return;
-    const unsubNotifs = subscribeToNotifications(userId, (data) => {
-      // Sort newest first
+    if (!userIds || userIds.length === 0) {
+      setDbNotifications([]);
+      return;
+    }
+
+    const unsubNotifs = subscribeToNotifications(userIds, (data) => {
       data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       
       const mapped = data.map(d => {
         const message = d.message || d.title || "";
         const title = d.title || "";
+        const lowerTitle = title.toLowerCase();
+        const lowerMsg = message.toLowerCase();
         
         let url = "/riwayat";
-        if (title.toLowerCase().includes("pengajuan") || message.toLowerCase().includes("pengajuan")) {
-           url = "/pengajuan";
+        let isSp = false;
+        let isGaji = false;
+        if (lowerTitle.includes("pengajuan") || lowerMsg.includes("pengajuan")) {
+          url = "/pengajuan";
+        } else if (lowerTitle.includes("peringatan") || lowerMsg.includes("peringatan") || lowerTitle.includes("sp") || lowerMsg.includes("sp")) {
+          url = "/pengaturan?open=sp";
+          isSp = true;
+        } else if (lowerTitle.includes("gaji") || lowerMsg.includes("gaji") || d.type === "gaji" || lowerTitle.includes("slip") || lowerMsg.includes("slip") || lowerTitle.includes("rekening")) {
+          url = "/gaji?open=slip";
+          isGaji = true;
         }
 
         return {
           id: d.id,
           msg: message,
-          time: new Date(d.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+          time: d.createdAt ? new Date(d.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Baru',
           isRead: d.isRead,
-          url
+          url,
+          isSp,
+          isGaji,
+          createdAt: d.createdAt
         };
       });
-      setNotifications(mapped as any);
-      setUnreadCount(mapped.filter(m => !m.isRead).length);
+      setDbNotifications(mapped);
     });
+
     return () => unsubNotifs();
-  }, [userId]);
+  }, [userIds.join(',')]);
+
+  // Listen to Employee SPs to ensure active unread SPs always appear in the bell
+  useEffect(() => {
+    if (!userIds || userIds.length === 0) {
+      setSpNotifications([]);
+      return;
+    }
+
+    const unsubs: (() => void)[] = [];
+    userIds.forEach(uid => {
+      const unsub = subscribeToEmployeeSP(uid, (spList: SuratPeringatan[]) => {
+        const unreadActiveSps = spList.filter(s => s.status === "Aktif" && !s.isAcknowledged);
+        const mappedSp: BellNotification[] = unreadActiveSps.map(sp => ({
+          id: `sp-${sp.id}`,
+          msg: `Pemberitahuan resmi ${sp.tingkatSp} (${sp.nomorSurat}) telah diterbitkan. Buka menu Pengaturan untuk membaca & konfirmasi.`,
+          time: sp.tanggalTerbit ? new Date(sp.tanggalTerbit).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }) : 'Baru',
+          isRead: false,
+          url: `/pengaturan?open=sp&spId=${sp.id}`,
+          isSp: true,
+          createdAt: sp.tanggalTerbit
+        }));
+        setSpNotifications(mappedSp);
+      });
+      unsubs.push(unsub);
+    });
+
+    return () => {
+      unsubs.forEach(u => u());
+    };
+  }, [userIds.join(',')]);
+
+  // Merge and deduplicate notifications
+  useEffect(() => {
+    const combined = [...spNotifications];
+    dbNotifications.forEach(dbN => {
+      // If spNotifications already has this SP, avoid duplicate
+      const alreadyHas = combined.some(c => c.msg === dbN.msg);
+      if (!alreadyHas) {
+        combined.push(dbN);
+      }
+    });
+
+    setNotifications(combined);
+    setUnreadCount(combined.filter(m => !m.isRead).length);
+  }, [dbNotifications, spNotifications]);
+
+  const handleNotificationClick = (n: BellNotification) => {
+    setShowNotif(false);
+
+    if (!n.isRead && typeof n.id === "string" && !n.id.startsWith("sp-")) {
+      markNotificationRead(n.id);
+    }
+
+    const targetUrl = n.url || "/riwayat";
+
+    if (targetUrl.includes("/pengaturan") || n.isSp) {
+      const spId = typeof n.id === "string" && n.id.startsWith("sp-") ? n.id.replace("sp-", "") : undefined;
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("pilar_open_sp", { detail: { spId } }));
+      }
+      router.push(spId ? `/pengaturan?open=sp&spId=${spId}` : "/pengaturan?open=sp");
+      return;
+    }
+
+    if (targetUrl.includes("/gaji") || n.isGaji) {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("pilar_open_slip"));
+      }
+      router.push("/gaji?open=slip");
+      return;
+    }
+
+    router.push(targetUrl);
+  };
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     const id = Date.now();
@@ -79,7 +186,14 @@ export default function NotificationBell() {
         <button 
           onClick={() => {
             setShowNotif(!showNotif);
-            if (!showNotif) { setUnreadCount(0); notifications.forEach((n: any) => { if(!n.isRead) markNotificationRead(n.id); }); }
+            if (!showNotif) { 
+              setUnreadCount(0); 
+              notifications.forEach((n: any) => { 
+                if (!n.isRead && typeof n.id === "string" && !n.id.startsWith("sp-")) {
+                  markNotificationRead(n.id);
+                }
+              }); 
+            }
           }}
           className="relative p-2 text-pilar-textSecondary hover:text-pilar-gold transition-colors"
         >
@@ -104,30 +218,37 @@ export default function NotificationBell() {
                 </button>
                 <h3 className="font-bold text-white text-lg">Notifikasi</h3>
               </div>
-              
-              
             </div>
             
             <div className="flex-1 overflow-y-auto">
               {notifications.length > 0 ? (
                 <div className="divide-y divide-white/5">
                   {notifications.map((n) => (
-                    <a 
+                    <div 
                       key={n.id} 
-                      href={n.url || "/riwayat"}
-                      onClick={() => setShowNotif(false)}
+                      onClick={() => handleNotificationClick(n)}
                       className="block p-5 hover:bg-white/5 transition-colors cursor-pointer group"
                     >
                       <div className="flex items-start gap-4">
-                        <div className="w-10 h-10 rounded-full bg-pilar-gold/10 text-pilar-gold flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                          <i className="fa-regular fa-bell"></i>
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform ${n.isSp || n.isGaji ? "bg-pilar-gold/20 text-pilar-gold" : "bg-pilar-gold/10 text-pilar-gold"}`}>
+                          <i className={n.isSp ? "fa-solid fa-triangle-exclamation text-sm" : n.isGaji ? "fa-solid fa-sack-dollar text-sm" : "fa-regular fa-bell text-base"}></i>
                         </div>
-                        <div>
+                        <div className="flex-1">
+                          {n.isSp && (
+                            <span className="inline-block px-2 py-0.5 mb-1.5 text-[10px] font-black uppercase tracking-wider bg-pilar-gold/20 text-pilar-gold border border-pilar-gold/30 rounded-full">
+                              Surat Peringatan
+                            </span>
+                          )}
+                          {n.isGaji && (
+                            <span className="inline-block px-2 py-0.5 mb-1.5 text-[10px] font-black uppercase tracking-wider bg-pilar-gold/20 text-pilar-gold border border-pilar-gold/30 rounded-full">
+                              Slip Gaji
+                            </span>
+                          )}
                           <p className="text-sm text-gray-200 leading-relaxed font-medium">{n.msg}</p>
                           <span className="text-xs text-gray-500 mt-2 block">{n.time}</span>
                         </div>
                       </div>
-                    </a>
+                    </div>
                   ))}
                 </div>
               ) : (

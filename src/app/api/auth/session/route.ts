@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const { role } = await req.json();
+    const { role, adminRole } = await req.json();
 
-    const response = NextResponse.json({ success: true, role });
+    const response = NextResponse.json({ success: true, role, adminRole });
 
     // Set cookie valid for 7 days
     const maxAge = 60 * 60 * 24 * 7;
@@ -18,6 +18,16 @@ export async function POST(req: Request) {
         sameSite: 'lax',
         maxAge: maxAge,
       });
+      if (adminRole) {
+        response.cookies.set({
+          name: 'pilar_admin_role',
+          value: adminRole,
+          path: '/',
+          httpOnly: false,
+          sameSite: 'lax',
+          maxAge: maxAge,
+        });
+      }
       // Clear employee session if any
       response.cookies.delete('pilar_employee_session');
     } else if (role === 'karyawan') {
@@ -31,6 +41,7 @@ export async function POST(req: Request) {
       });
       // Clear admin session if any
       response.cookies.delete('pilar_admin_session');
+      response.cookies.delete('pilar_admin_role');
     }
 
     return response;
@@ -42,6 +53,7 @@ export async function POST(req: Request) {
 export async function DELETE() {
   const response = NextResponse.json({ success: true, message: 'Sessions cleared' });
   response.cookies.delete('pilar_admin_session');
+  response.cookies.delete('pilar_admin_role');
   response.cookies.delete('pilar_employee_session');
   return response;
 }

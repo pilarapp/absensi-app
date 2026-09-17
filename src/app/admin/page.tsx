@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import dynamic from "next/dynamic";
 import CustomSelect from "@/components/CustomSelect";
-import { subscribeToRequests, updateRequestStatus, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs, subscribeToPositions, addPosition, DEFAULT_POSITIONS, PositionItem } from "@/lib/db";
+import { subscribeToRequests, updateRequestStatus, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs, subscribeToPositions, addPosition, DEFAULT_POSITIONS, PositionItem, checkAdminRole, subscribeToAdmins, AdminAccount, SuratPeringatan, subscribeToSuratPeringatan, addSuratPeringatan, updateSuratPeringatan, deleteSuratPeringatan } from "@/lib/db";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
@@ -120,47 +120,117 @@ export default function AdminDesktopPage() {
   const router = useRouter();
   const [currentAdminEmail, setCurrentAdminEmail] = useState<string>("admin@pt-pilar.co.id");
   const [currentAdminName, setCurrentAdminName] = useState<string>("Administrator");
+  const [currentAdminNik, setCurrentAdminNik] = useState<string>("");
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  const [adminRole, setAdminRole] = useState<"superadmin" | "admin">("admin");
+  const [adminList, setAdminList] = useState<AdminAccount[]>([]);
+  const [adminSearch, setAdminSearch] = useState<string>("");
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [auditSearch, setAuditSearch] = useState<string>("");
   const [auditFilterAction, setAuditFilterAction] = useState<string>("all");
-  const [pengaturanSubTab, setPengaturanSubTab] = useState<"lokasi" | "audit">("lokasi");
+  const [pengaturanSubTab, setPengaturanSubTab] = useState<"lokasi" | "audit" | "admins">("lokasi");
+  const [karyawanSubTab, setKaryawanSubTab] = useState<"karyawan" | "sp">("karyawan");
+
+  // State Modal & Form Manajemen Admin
+  const [isAddAdminModalOpen, setIsAddAdminModalOpen] = useState(false);
+  const [isEditAdminModalOpen, setIsEditAdminModalOpen] = useState(false);
+  const [isDeleteAdminModalOpen, setIsDeleteAdminModalOpen] = useState(false);
+  const [adminFormNama, setAdminFormNama] = useState("");
+  const [adminFormNik, setAdminFormNik] = useState("");
+  const [adminFormEmail, setAdminFormEmail] = useState("");
+  const [adminFormPassword, setAdminFormPassword] = useState("");
+  const [adminFormRole, setAdminFormRole] = useState<"admin" | "superadmin">("admin");
+  const [selectedAdminForEdit, setSelectedAdminForEdit] = useState<AdminAccount | null>(null);
+  const [selectedAdminForDelete, setSelectedAdminForDelete] = useState<AdminAccount | null>(null);
+  const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [adminActionError, setAdminActionError] = useState("");
 
   useEffect(() => {
     setIsMounted(true);
     const savedMenu = localStorage.getItem("pilar_admin_menu");
     if (savedMenu) {
-      setActiveMenuState(savedMenu);
+      if (savedMenu === "sp") {
+        setActiveMenuState("karyawan");
+        setKaryawanSubTab("sp");
+      } else {
+        setActiveMenuState(savedMenu);
+      }
     }
 
     if (auth) {
-      const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
         if (!user) {
           const localAdmin = typeof window !== 'undefined' ? localStorage.getItem("admin_email") : null;
           if (!localAdmin) {
             router.replace("/admin/login");
           }
         } else {
-          const email = user.email || "";
+          const email = (user.email || "").toLowerCase();
           setCurrentAdminEmail(email);
-          setCurrentAdminName(user.displayName || email.split("@")[0] || "Administrator");
+          const savedName = typeof window !== 'undefined' ? localStorage.getItem("admin_name") : null;
+          const savedNik = typeof window !== 'undefined' ? localStorage.getItem("admin_nik") : null;
+          if (savedName) setCurrentAdminName(savedName);
+          if (savedNik) setCurrentAdminNik(savedNik);
+
+          // Verifikasi hak akses Super Admin
+          try {
+            const roleInfo = await checkAdminRole(user.uid);
+            const isSuper = roleInfo.isSuperAdmin || email === 'pilarss@admin.com' || (typeof window !== 'undefined' && localStorage.getItem("admin_role") === "superadmin");
+            setIsSuperAdmin(isSuper);
+            setAdminRole(isSuper ? 'superadmin' : 'admin');
+            if (roleInfo.nama) {
+              setCurrentAdminName(roleInfo.nama);
+              localStorage.setItem("admin_name", roleInfo.nama);
+            }
+            if (roleInfo.nik) {
+              setCurrentAdminNik(roleInfo.nik);
+              localStorage.setItem("admin_nik", roleInfo.nik);
+            }
+          } catch (e) {
+            if (email === 'pilarss@admin.com') {
+              setIsSuperAdmin(true);
+              setAdminRole('superadmin');
+            }
+          }
         }
       });
       return () => unsubscribeAuth();
     }
   }, []);
 
+  // Proteksi Audit Log & Kelola Admin: Hanya Super Admin saja
   useEffect(() => {
+    if (!isSuperAdmin && (pengaturanSubTab === "audit" || pengaturanSubTab === "admins")) {
+      setPengaturanSubTab("lokasi");
+    }
+  }, [isSuperAdmin, pengaturanSubTab]);
+
+  // Berlangganan Audit Logs hanya jika Super Admin
+  useEffect(() => {
+    if (!isSuperAdmin) return;
     const unsubAudit = subscribeToAuditLogs((logs) => {
       setAuditLogs(logs);
     });
     return () => unsubAudit();
-  }, []);
+  }, [isSuperAdmin]);
+
+  // Berlangganan Daftar Admin hanya jika Super Admin
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    const unsubAdmins = subscribeToAdmins((list) => {
+      setAdminList(list);
+    });
+    return () => unsubAdmins();
+  }, [isSuperAdmin]);
 
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/session', { method: 'DELETE' });
     } catch {}
     localStorage.removeItem("admin_email");
+    localStorage.removeItem("admin_role");
+    localStorage.removeItem("admin_name");
+    localStorage.removeItem("admin_nik");
     localStorage.removeItem("pilar_admin_menu");
     if (auth) {
       try {
@@ -168,6 +238,168 @@ export default function AdminDesktopPage() {
       } catch {}
     }
     router.push("/admin/login");
+  };
+
+  // Handlers untuk Kelola Admin
+  const handleOpenAddAdmin = () => {
+    setAdminFormNama("");
+    setAdminFormNik("");
+    setAdminFormEmail("");
+    setAdminFormPassword("");
+    setAdminFormRole("admin");
+    setAdminActionError("");
+    setIsAddAdminModalOpen(true);
+  };
+
+  const handleOpenEditAdmin = (admin: AdminAccount) => {
+    setSelectedAdminForEdit(admin);
+    setAdminFormNama(admin.nama);
+    setAdminFormNik(admin.nik || "");
+    setAdminFormEmail(admin.email);
+    setAdminFormPassword("");
+    setAdminFormRole(admin.role);
+    setAdminActionError("");
+    setIsEditAdminModalOpen(true);
+  };
+
+  const handleOpenDeleteAdmin = (admin: AdminAccount) => {
+    setSelectedAdminForDelete(admin);
+    setAdminActionError("");
+    setIsDeleteAdminModalOpen(true);
+  };
+
+  const handleCreateAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminFormNama.trim()) {
+      setAdminActionError("Nama asli administrator wajib diisi.");
+      return;
+    }
+    if (!adminFormNik.trim()) {
+      setAdminActionError("Nomor Induk Karyawan (NIK) wajib diisi untuk dokumen resmi.");
+      return;
+    }
+    if (!adminFormEmail.trim() || !adminFormPassword.trim()) {
+      setAdminActionError("Email dan kata sandi wajib diisi.");
+      return;
+    }
+    if (adminFormPassword.length < 6) {
+      setAdminActionError("Kata sandi minimal 6 karakter.");
+      return;
+    }
+
+    setAdminActionLoading(true);
+    setAdminActionError("");
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      const res = await fetch("/api/admin/manage-admins", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          nama: adminFormNama.trim(),
+          nik: adminFormNik.trim(),
+          email: adminFormEmail.trim(),
+          password: adminFormPassword,
+          role: adminFormRole
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal membuat akun admin.");
+      }
+
+      showToast(`Akun ${adminFormNama} (NIK: ${adminFormNik.trim()}) berhasil dibuat.`);
+      setIsAddAdminModalOpen(false);
+    } catch (err: any) {
+      setAdminActionError(err.message || "Gagal membuat akun admin.");
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleUpdateAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAdminForEdit) return;
+    if (!adminFormNama.trim()) {
+      setAdminActionError("Nama lengkap wajib diisi.");
+      return;
+    }
+    if (!adminFormNik.trim()) {
+      setAdminActionError("Nomor Induk Karyawan (NIK) wajib diisi.");
+      return;
+    }
+    if (adminFormPassword && adminFormPassword.length < 6) {
+      setAdminActionError("Kata sandi baru minimal 6 karakter jika ingin diubah.");
+      return;
+    }
+
+    setAdminActionLoading(true);
+    setAdminActionError("");
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      const res = await fetch("/api/admin/manage-admins", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          uid: selectedAdminForEdit.uid,
+          nama: adminFormNama.trim(),
+          nik: adminFormNik.trim(),
+          password: adminFormPassword || undefined,
+          role: adminFormRole
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal memperbarui data admin.");
+      }
+
+      // Jika mengedit profil akun sendiri, sinkronkan state lokal
+      if (selectedAdminForEdit.uid === auth?.currentUser?.uid) {
+        setCurrentAdminName(adminFormNama.trim());
+        setCurrentAdminNik(adminFormNik.trim());
+        localStorage.setItem("admin_name", adminFormNama.trim());
+        localStorage.setItem("admin_nik", adminFormNik.trim());
+      }
+
+      showToast("Data akun admin & NIK berhasil diperbarui.");
+      setIsEditAdminModalOpen(false);
+    } catch (err: any) {
+      setAdminActionError(err.message || "Gagal memperbarui akun admin.");
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleDeleteAdmin = async () => {
+    if (!selectedAdminForDelete) return;
+
+    setAdminActionLoading(true);
+    setAdminActionError("");
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      const res = await fetch(`/api/admin/manage-admins?uid=${selectedAdminForDelete.uid}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal menghapus admin.");
+      }
+
+      showToast(`Akses admin ${selectedAdminForDelete.nama} berhasil dicabut.`);
+      setIsDeleteAdminModalOpen(false);
+    } catch (err: any) {
+      setAdminActionError(err.message || "Gagal menghapus admin.");
+    } finally {
+      setAdminActionLoading(false);
+    }
   };
 
   const setActiveMenu = (menu: string) => {
@@ -345,11 +577,169 @@ export default function AdminDesktopPage() {
   const [selectedPengajuan, setSelectedPengajuan] = useState<any>(null);
   const [pengajuanTab, setPengajuanTab] = useState<"antrean" | "riwayat">("antrean");
 
+  // Surat Peringatan (SP) State
+  const [spList, setSpList] = useState<SuratPeringatan[]>([]);
+  const [selectedSpDetail, setSelectedSpDetail] = useState<SuratPeringatan | null>(null);
+  const [isAddSpModalOpen, setIsAddSpModalOpen] = useState(false);
+  const [isDeleteSpModalOpen, setIsDeleteSpModalOpen] = useState(false);
+  const [spToDelete, setSpToDelete] = useState<SuratPeringatan | null>(null);
+  const [spFilterKaryawan, setSpFilterKaryawan] = useState("all");
+  const [spFilterTingkat, setSpFilterTingkat] = useState("all");
+  const [spFilterStatus, setSpFilterStatus] = useState("all");
+  const [spSearchQuery, setSpSearchQuery] = useState("");
+
+  // Form State Tambah SP
+  const [spFormKaryawanId, setSpFormKaryawanId] = useState("");
+  const [spFormTingkat, setSpFormTingkat] = useState<"Surat Teguran" | "SP 1" | "SP 2" | "SP 3">("SP 1");
+  const [spFormNomor, setSpFormNomor] = useState("");
+  const [spFormTanggal, setSpFormTanggal] = useState(() => formatLocalDateStr(new Date()));
+  const [spFormMasaBulan, setSpFormMasaBulan] = useState(6);
+  const [spFormAlasan, setSpFormAlasan] = useState("");
+  const [spFormDetail, setSpFormDetail] = useState("");
+  const [spFormTindakan, setSpFormTindakan] = useState("");
+  const [isSavingSp, setIsSavingSp] = useState(false);
+
+  // Helper hitung nomor SP otomatis
+  const generateSpNumber = (tingkat: "Surat Teguran" | "SP 1" | "SP 2" | "SP 3") => {
+    try {
+      const romanMonths = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+      const now = new Date();
+      const romanM = romanMonths[now.getMonth()] || "IX";
+      const year = now.getFullYear();
+      const countThisMonth = (spList || []).filter(s => {
+        if (!s || !s.tanggalTerbit) return false;
+        const d = new Date(s.tanggalTerbit);
+        return !isNaN(d.getTime()) && d.getMonth() === now.getMonth() && d.getFullYear() === year;
+      }).length;
+      const seq = String(countThisMonth + 1).padStart(3, "0");
+      const code = tingkat === "Surat Teguran" ? "ST" : (tingkat || "SP 1").replace(" ", "-");
+      return `${seq}/${code}/HRD-PSS/${romanM}/${year}`;
+    } catch (e) {
+      return `001/SP-1/HRD-PSS/IX/${new Date().getFullYear()}`;
+    }
+  };
+
+  const handleOpenAddSpModal = () => {
+    try {
+      const defaultTingkat: "SP 1" = "SP 1";
+      setSpFormTingkat(defaultTingkat);
+      setSpFormNomor(generateSpNumber(defaultTingkat));
+      try {
+        setSpFormTanggal(formatLocalDateStr(new Date()));
+      } catch {
+        setSpFormTanggal(new Date().toISOString().split("T")[0]);
+      }
+      setSpFormMasaBulan(6);
+      setSpFormAlasan("");
+      setSpFormDetail("");
+      setSpFormTindakan("");
+      if (Array.isArray(karyawanList) && karyawanList.length > 0) {
+        setSpFormKaryawanId(karyawanList[0].id);
+      } else {
+        setSpFormKaryawanId("");
+      }
+      setIsAddSpModalOpen(true);
+    } catch (err: any) {
+      console.error("Gagal membuka modal SP:", err);
+      setIsAddSpModalOpen(true);
+    }
+  };
+
+  const handleSaveSp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!spFormKaryawanId) return showToast("Silakan pilih karyawan penerima SP", "error");
+    if (!spFormNomor.trim()) return showToast("Nomor surat wajib diisi", "error");
+    if (!spFormAlasan.trim()) return showToast("Alasan pelanggaran wajib diisi", "error");
+
+    const emp = karyawanList.find(k => k.id === spFormKaryawanId);
+    if (!emp) return showToast("Data karyawan tidak ditemukan", "error");
+
+    const dTerbit = new Date(spFormTanggal);
+    const dSampai = new Date(spFormTanggal);
+    dSampai.setMonth(dSampai.getMonth() + (spFormMasaBulan || 6));
+
+    setIsSavingSp(true);
+    try {
+      const res = await addSuratPeringatan({
+        nomorSurat: spFormNomor.trim(),
+        karyawanId: emp.id,
+        karyawanNama: emp.nama,
+        karyawanNik: emp.noInduk || "-",
+        karyawanPosisi: emp.posisi || "-",
+        tingkatSp: spFormTingkat,
+        alasanPelanggaran: spFormAlasan.trim(),
+        detailPelanggaran: spFormDetail.trim(),
+        tindakanPerbaikan: spFormTindakan.trim() || undefined,
+        tanggalTerbit: spFormTanggal,
+        berlakuMulai: spFormTanggal,
+        berlakuSampai: formatLocalDateStr(dSampai),
+        status: "Aktif",
+        hrdNama: currentAdminName || "PT. PILAR SENTRA SOLUSI",
+        hrdNik: currentAdminNik || "-",
+        hrdJabatan: isSuperAdmin ? "Super Admin & Direktur" : "HRD & Personalia Manager",
+        isAcknowledged: false
+      });
+
+      if (res.success) {
+        try {
+          const targetIds = Array.from(new Set([emp.id, (emp as any).karyawanId, emp.noInduk].filter(Boolean))) as string[];
+          for (const tid of targetIds) {
+            await addNotification(
+              tid,
+              `Pemberitahuan ${spFormTingkat}`,
+              `Pemberitahuan resmi ${spFormTingkat} (${spFormNomor.trim()}) telah diterbitkan oleh Manajemen. Silakan cek menu Pengaturan akun Anda. Dokumen fisik akan diserahkan langsung oleh HRD.`,
+              "warning"
+            );
+          }
+        } catch (notifErr) {
+          console.error("Gagal mengirim notifikasi SP:", notifErr);
+        }
+        showToast("Pemberitahuan Surat Peringatan berhasil diterbitkan!");
+        setIsAddSpModalOpen(false);
+      } else {
+        showToast(res.error || "Gagal menerbitkan SP", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan", "error");
+    } finally {
+      setIsSavingSp(false);
+    }
+  };
+
+  const handleUpdateSpStatus = async (spId: string, newStatus: "Aktif" | "Selesai" | "Dibatalkan") => {
+    const ok = await updateSuratPeringatan(spId, { status: newStatus });
+    if (ok) {
+      showToast(`Status SP diubah menjadi ${newStatus}`);
+    } else {
+      showToast("Gagal mengubah status SP", "error");
+    }
+  };
+
+  const handleDeleteSp = async () => {
+    if (!spToDelete?.id) return;
+    const ok = await deleteSuratPeringatan(spToDelete.id);
+    if (ok) {
+      showToast("Surat Peringatan berhasil dihapus");
+      setIsDeleteSpModalOpen(false);
+      setSpToDelete(null);
+    } else {
+      showToast("Gagal menghapus SP", "error");
+    }
+  };
+
   // Penggajian State
   const [workingDays, setWorkingDays] = useState(22);
   const [absences, setAbsences] = useState<Record<string, number>>({});
   const [showGajiChart, setShowGajiChart] = useState(true);
   const [selectedAdminSlip, setSelectedAdminSlip] = useState<any | null>(null);
+
+  const getAdminSlipPenerima = (slip: any) => {
+    if (!slip) return { nik: "-", jabatan: "Karyawan" };
+    const emp = karyawanList.find(k => k.id === slip.karyawanId || k.nama === slip.nama);
+    const nik = slip.nik || slip.karyawanNik || emp?.noInduk || "-";
+    const jabatan = slip.jabatan || slip.posisi || slip.karyawanPosisi || emp?.posisi || "Karyawan";
+    return { nik, jabatan };
+  };
   const [bpjsTkRate, setBpjsTkRate] = useState<number>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("pilar_bpjs_tk_rate");
@@ -381,8 +771,18 @@ export default function AdminDesktopPage() {
     }
   };
 
-  // Confirmation Modal State
-  const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, message: string, onConfirm: () => void} | null>(null);
+  // Confirmation Modal State (Standardized)
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title?: string;
+    message: string;
+    details?: React.ReactNode;
+    confirmText?: string;
+    cancelText?: string;
+    variant?: "danger" | "primary" | "warning";
+    icon?: string;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
 
   useEffect(() => {
     // Load positions via Firestore
@@ -496,6 +896,11 @@ export default function AdminDesktopPage() {
       setDataGrafikGaji(chartPoints);
     });
 
+    // Load Surat Peringatan
+    const unsubscribeSp = subscribeToSuratPeringatan((data) => {
+      setSpList(data);
+    });
+
     return () => {
       unsubscribePositions();
       unsubscribeRequests();
@@ -504,6 +909,7 @@ export default function AdminDesktopPage() {
       unsubscribeAttendance();
       unsubscribeFinances();
       unsubscribeSalaries();
+      unsubscribeSp();
     };
   }, []);
 
@@ -561,7 +967,13 @@ export default function AdminDesktopPage() {
     const locToDelete = locations.find(l => l.id === id);
     setConfirmModal({
       isOpen: true,
-      message: "Apakah Anda yakin ingin menghapus lokasi ini?",
+      title: "Hapus Lokasi Kantor?",
+      message: locToDelete 
+        ? `Apakah Anda yakin ingin menghapus lokasi "${locToDelete.nama}" dari sistem absensi?`
+        : "Apakah Anda yakin ingin menghapus titik lokasi ini?",
+      confirmText: "Ya, Hapus Lokasi",
+      variant: "danger",
+      icon: "fa-solid fa-trash-can",
       onConfirm: async () => {
         const success = await deleteLocation(id);
         if (success) {
@@ -581,7 +993,7 @@ export default function AdminDesktopPage() {
     });
   };
 
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, type?: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(""), 5000);
   };
@@ -606,7 +1018,11 @@ export default function AdminDesktopPage() {
   }, []);
 
   const handleApprove = async (id: string) => {
-    await updateRequestStatus(id, "Disetujui");
+    await updateRequestStatus(id, "Disetujui", "", {
+      approverNama: currentAdminName,
+      approverNik: currentAdminNik,
+      approverEmail: currentAdminEmail
+    });
     showToast("Pengajuan disetujui.");
     const req = pengajuanList.find((r: any) => r.id === id);
     if (req && req.karyawanId) {
@@ -617,7 +1033,7 @@ export default function AdminDesktopPage() {
       adminName: currentAdminName,
       action: "SETUJUI_PENGAJUAN",
       target: req?.namaKaryawan || id,
-      details: `Menyetujui permohonan ${req?.type || 'Izin/Cuti'} untuk ${req?.namaKaryawan || id}`
+      details: `Menyetujui permohonan ${req?.type || 'Izin/Cuti'} untuk ${req?.namaKaryawan || id} (Oleh: ${currentAdminName}${currentAdminNik ? ` / NIK: ${currentAdminNik}` : ''})`
     });
   };
 
@@ -691,11 +1107,21 @@ export default function AdminDesktopPage() {
         "Tanggal Cair": s.tanggal,
         "Nama Karyawan": s.nama,
         "Gaji Pokok": s.gajiPokok || 0,
-        "Hari Alpa": s.alpa || 0,
+        "TLM (x)": s.tlm || 0,
+        "Denda TLM": s.dendaTlm || 0,
+        "TAM (x)": s.tam || 0,
+        "Denda TAM": s.dendaTam || 0,
+        "TAP (x)": s.tap || 0,
+        "Denda TAP": s.dendaTap || 0,
+        "Total Denda Absensi": s.totalDenda || 0,
+        "Hari Alpa (A)": s.alpa || 0,
         "Potongan Alpa": s.potonganAlpa || 0,
+        "Hari Izin (I)": s.izin || 0,
+        "Potongan Izin": s.potonganIzin || 0,
+        "Total Potongan Kehadiran": s.totalPotonganKehadiran || s.potonganAlpa || 0,
         "Potongan BPJS TK": s.potonganBpjsTk || 0,
         "Potongan BPJS Kes": s.potonganBpjsKes || 0,
-        "Total Potongan": s.potongan || 0,
+        "Total Seluruh Potongan": s.potongan || 0,
         "Gaji Bersih": s.gajiBersih || 0,
         "Status": "Berhasil"
       }));
@@ -757,7 +1183,13 @@ export default function AdminDesktopPage() {
     const empToDelete = karyawanList.find(k => k.id === id);
     setConfirmModal({
       isOpen: true,
-      message: "Apakah Anda yakin ingin menghapus karyawan ini?",
+      title: "Hapus Akun Karyawan?",
+      message: empToDelete 
+        ? `Apakah Anda yakin ingin menghapus data karyawan "${empToDelete.nama}"?`
+        : "Apakah Anda yakin ingin menghapus akun karyawan ini?",
+      confirmText: "Ya, Hapus Karyawan",
+      variant: "danger",
+      icon: "fa-solid fa-trash-can",
       onConfirm: async () => {
         try {
           const res = await fetch(`/api/auth/karyawan?uid=${id}`, { method: 'DELETE' });
@@ -866,16 +1298,33 @@ export default function AdminDesktopPage() {
     potonganBpjsTk: number = 0,
     potonganBpjsKes: number = 0,
     currentBpjsTkRate: number = 2,
-    currentBpjsKesRate: number = 1
+    currentBpjsKesRate: number = 1,
+    extraData?: {
+      tlm?: number;
+      tam?: number;
+      tap?: number;
+      dendaTlm?: number;
+      dendaTam?: number;
+      dendaTap?: number;
+      totalDenda?: number;
+      izin?: number;
+      potonganIzin?: number;
+      totalPotonganKehadiran?: number;
+      totalPotongan?: number;
+    }
   ) => {
     if (nominal <= 0) return showToast("Nominal gaji tidak valid.");
     setConfirmModal({
       isOpen: true,
+      title: "Konfirmasi Pencairan Gaji",
       message: `Apakah Anda yakin ingin mencairkan gaji sebesar Rp ${new Intl.NumberFormat('id-ID').format(nominal)} untuk ${nama}?`,
+      confirmText: "Ya, Cairkan Gaji",
+      variant: "primary",
+      icon: "fa-solid fa-money-bill-wave",
       onConfirm: async () => {
         const timestamp = Date.now();
         const dateStr = new Date().toLocaleDateString('id-ID');
-        const totalPotongan = potonganAlpa + potonganBpjsTk + potonganBpjsKes;
+        const totalPotongan = extraData?.totalPotongan ?? (potonganAlpa + potonganBpjsTk + potonganBpjsKes);
         
         // 1. Catat ke Keuangan
         const newTrx: Transaksi = {
@@ -892,20 +1341,44 @@ export default function AdminDesktopPage() {
         // 2. Catat ke Riwayat Gaji Karyawan (pilar_gaji_karyawan)
         const savedGaji = localStorage.getItem("pilar_gaji_karyawan");
         let riwayatGaji = savedGaji ? JSON.parse(savedGaji) : [];
+        const emp = karyawanList.find(k => k.id === karyawanId || k.nama === nama);
+        const empNik = emp?.noInduk || "";
+        const empPosisi = emp?.posisi || "";
         const newSlipGaji = {
           id: "SLIP-" + timestamp,
           karyawanId,
           nama,
+          nik: empNik,
+          karyawanNik: empNik,
+          posisi: empPosisi,
+          jabatan: empPosisi,
+          karyawanPosisi: empPosisi,
           tanggal: dateStr,
           gajiPokok,
           potongan: totalPotongan,
+          // Denda absensi (TLM, TAM, TAP)
+          tlm: extraData?.tlm || 0,
+          tam: extraData?.tam || 0,
+          tap: extraData?.tap || 0,
+          dendaTlm: extraData?.dendaTlm || 0,
+          dendaTam: extraData?.dendaTam || 0,
+          dendaTap: extraData?.dendaTap || 0,
+          totalDenda: extraData?.totalDenda || 0,
+          // Kehadiran (No Work, No Pay - A, I)
+          alpa,
           potonganAlpa,
+          izin: extraData?.izin || 0,
+          potonganIzin: extraData?.potonganIzin || 0,
+          totalPotonganKehadiran: extraData?.totalPotonganKehadiran || potonganAlpa,
+          // BPJS
           potonganBpjsTk,
           potonganBpjsKes,
           bpjsTkRate: currentBpjsTkRate,
           bpjsKesRate: currentBpjsKesRate,
-          alpa,
           gajiBersih: nominal,
+          hrdNama: currentAdminName,
+          hrdNik: currentAdminNik,
+          adminEmail: currentAdminEmail,
           createdAt: new Date().toISOString()
         };
         riwayatGaji = [newSlipGaji, ...riwayatGaji];
@@ -1086,6 +1559,7 @@ export default function AdminDesktopPage() {
        const totalPelanggaran = tlm + tam + tap + a;
 
        return {
+          id: karyawan.id,
           nama: karyawan.nama,
           posisi: karyawan.posisi || "-",
           tlm,
@@ -1687,6 +2161,11 @@ export default function AdminDesktopPage() {
           >
             <i className="fa-solid fa-users-gear w-5"></i>
             <span>Kelola Karyawan</span>
+            {spList.filter(s => s.status === "Aktif" && !s.isAcknowledged).length > 0 && (
+              <span className="ml-auto px-1.5 py-0.5 text-[9px] font-black rounded-full bg-amber-500 text-pilar-darker">
+                {spList.filter(s => s.status === "Aktif" && !s.isAcknowledged).length}
+              </span>
+            )}
           </button>
 
           <button 
@@ -1696,8 +2175,6 @@ export default function AdminDesktopPage() {
             <i className="fa-solid fa-clipboard-check w-5"></i>
             <span>Persetujuan</span>
           </button>
-
-
 
           <button 
             onClick={() => setActiveMenu("penggajian")}
@@ -1730,7 +2207,7 @@ export default function AdminDesktopPage() {
         <header className="bg-white h-16 shadow-sm border-b border-gray-200 flex items-center justify-between px-6 z-10">
           <h2 className="text-xl font-bold text-gray-800">
             {activeMenu === "dashboard" ? "Dashboard HRD" : 
-             activeMenu === "karyawan" ? "Manajemen Karyawan" :
+             activeMenu === "karyawan" ? (karyawanSubTab === "sp" ? "Manajemen Surat Peringatan (SP)" : "Manajemen Karyawan") :
              activeMenu === "pengajuan" ? "Persetujuan Pengajuan" :
              activeMenu === "penggajian" ? "Penggajian Karyawan (Payroll)" :
              activeMenu === "pengaturan" ? "Pengaturan Sistem" :
@@ -1791,12 +2268,23 @@ export default function AdminDesktopPage() {
             )}
 
             <div className="flex items-center space-x-3 border-l border-gray-200 pl-4">
-              <div className="w-10 h-10 bg-pilar-darker rounded-full text-white flex items-center justify-center font-bold">
-                A
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white shadow-sm ${isSuperAdmin ? 'bg-pilar-darker text-pilar-gold ring-2 ring-pilar-gold/40 text-sm' : 'bg-pilar-darker text-pilar-gold text-sm'}`}>
+                {isSuperAdmin ? (
+                  <i className="fa-solid fa-crown text-xs text-pilar-gold"></i>
+                ) : (
+                  (currentAdminName.charAt(0) || 'A').toUpperCase()
+                )}
               </div>
-              <div>
-                <p className="text-sm font-bold text-gray-800">Admin Utama</p>
-                <p className="text-xs text-gray-500">HR Manager</p>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-sm font-bold text-gray-800 leading-tight truncate max-w-[150px]">{currentAdminName}</p>
+                  {isSuperAdmin && (
+                    <span className="px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md bg-pilar-darker text-pilar-gold border border-pilar-gold/30 flex items-center gap-0.5 shadow-2xs">
+                      <i className="fa-solid fa-crown text-[8px] text-pilar-gold"></i> Super Admin
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500">{isSuperAdmin ? "Master Administrator" : "HR Manager"}</p>
               </div>
             </div>
           </div>
@@ -2240,9 +2728,46 @@ export default function AdminDesktopPage() {
             </div>
           )}
 
-          {/* KARYAWAN TAB (CRUD) */}
+          {/* KELOLA KARYAWAN TAB (DAFTAR KARYAWAN & SURAT PERINGATAN) */}
           {activeMenu === "karyawan" && (
-            <div className="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 overflow-hidden animate-slide-up">
+            <div className="space-y-6 animate-slide-up">
+              {/* Sub-tab Navigation */}
+              <div className="bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 flex items-center space-x-2 max-w-xl">
+                <button
+                  type="button"
+                  onClick={() => setKaryawanSubTab("karyawan")}
+                  className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center space-x-2 ${
+                    karyawanSubTab === "karyawan"
+                      ? "bg-pilar-darker text-pilar-gold shadow-md"
+                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
+                >
+                  <i className="fa-solid fa-users-gear"></i>
+                  <span>Daftar Karyawan</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setKaryawanSubTab("sp")}
+                  className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center space-x-2 relative ${
+                    karyawanSubTab === "sp"
+                      ? "bg-pilar-darker text-pilar-gold shadow-md"
+                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
+                >
+                  <i className="fa-solid fa-triangle-exclamation"></i>
+                  <span>Surat Peringatan (SP)</span>
+                  {spList.filter(s => s.status === "Aktif" && !s.isAcknowledged).length > 0 && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-amber-500 text-pilar-darker shadow-sm">
+                      {spList.filter(s => s.status === "Aktif" && !s.isAcknowledged).length}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* Sub-tab 1: Daftar Karyawan (CRUD Table) */}
+              {karyawanSubTab === "karyawan" && (
+<div className="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 overflow-hidden animate-slide-up">
               <div className="p-8 border-b border-gray-100 flex flex-col md:flex-row md:justify-between md:items-center bg-gray-50/50 space-y-4 md:space-y-0">
                 <div className="flex flex-col md:flex-row items-center space-y-3 md:space-y-0 md:space-x-4 w-full md:w-auto">
                   <div className="relative w-full md:w-auto">
@@ -2361,6 +2886,311 @@ export default function AdminDesktopPage() {
                   </tbody>
                 </table>
               </div>
+            </div>
+              )}
+
+              {/* Sub-tab 2: Surat Peringatan (SP) */}
+              {karyawanSubTab === "sp" && (
+<div className="space-y-8 animate-slide-up">
+              {/* 4 Stat Cards - 3 Colors (Navy, Gold, Gray) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {/* Total Diterbitkan */}
+                <div className="group bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 flex flex-col justify-between hover:-translate-y-1 hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] transition-all duration-300 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-pilar-gold/10 rounded-full blur-3xl -mr-10 -mt-10 opacity-60 group-hover:opacity-100 transition-opacity"></div>
+                  <div className="flex justify-between items-start z-10">
+                    <div className="w-14 h-14 bg-pilar-darker text-pilar-gold rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-gray-200 transform group-hover:scale-110 transition-transform duration-300">
+                      <i className="fa-solid fa-folder-open"></i>
+                    </div>
+                    <span className="bg-gray-100 text-pilar-darker text-xs font-bold px-3 py-1 rounded-full">Arsip</span>
+                  </div>
+                  <div className="mt-6 z-10">
+                    <p className="text-sm text-gray-500 font-medium mb-1">Total SP Diterbitkan</p>
+                    <p className="text-4xl font-black text-gray-800 tracking-tight">{spList.length}</p>
+                  </div>
+                </div>
+
+                {/* SP Aktif */}
+                <div className="group bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 flex flex-col justify-between hover:-translate-y-1 hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] transition-all duration-300 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-pilar-gold/10 rounded-full blur-3xl -mr-10 -mt-10 opacity-60 group-hover:opacity-100 transition-opacity"></div>
+                  <div className="flex justify-between items-start z-10">
+                    <div className="w-14 h-14 bg-pilar-gold text-pilar-darker rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-gray-200 transform group-hover:scale-110 transition-transform duration-300">
+                      <i className="fa-solid fa-triangle-exclamation"></i>
+                    </div>
+                    <span className="bg-pilar-gold/15 text-pilar-darker text-xs font-bold px-3 py-1 rounded-full">Aktif</span>
+                  </div>
+                  <div className="mt-6 z-10">
+                    <p className="text-sm text-gray-500 font-medium mb-1">SP Masih Berlaku</p>
+                    <p className="text-4xl font-black text-gray-800 tracking-tight">
+                      {spList.filter(s => s.status === "Aktif").length}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Menunggu Respon */}
+                <div className="group bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 flex flex-col justify-between hover:-translate-y-1 hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] transition-all duration-300 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-gray-100 rounded-full blur-3xl -mr-10 -mt-10 opacity-60 group-hover:opacity-100 transition-opacity"></div>
+                  <div className="flex justify-between items-start z-10">
+                    <div className="w-14 h-14 bg-gray-100 text-gray-700 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-gray-200 transform group-hover:scale-110 transition-transform duration-300">
+                      <i className="fa-solid fa-user-clock"></i>
+                    </div>
+                    <span className="bg-gray-100 text-gray-700 text-xs font-bold px-3 py-1 rounded-full">Pending</span>
+                  </div>
+                  <div className="mt-6 z-10">
+                    <p className="text-sm text-gray-500 font-medium mb-1">Menunggu Respon Karyawan</p>
+                    <p className="text-4xl font-black text-gray-800 tracking-tight">
+                      {spList.filter(s => s.status === "Aktif" && !s.isAcknowledged).length}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Selesai / Nonaktif */}
+                <div className="group bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 flex flex-col justify-between hover:-translate-y-1 hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] transition-all duration-300 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-pilar-gold/10 rounded-full blur-3xl -mr-10 -mt-10 opacity-60 group-hover:opacity-100 transition-opacity"></div>
+                  <div className="flex justify-between items-start z-10">
+                    <div className="w-14 h-14 bg-pilar-darker text-pilar-gold rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-gray-200 transform group-hover:scale-110 transition-transform duration-300">
+                      <i className="fa-solid fa-circle-check"></i>
+                    </div>
+                    <span className="bg-gray-100 text-pilar-darker text-xs font-bold px-3 py-1 rounded-full">Selesai</span>
+                  </div>
+                  <div className="mt-6 z-10">
+                    <p className="text-sm text-gray-500 font-medium mb-1">Selesai / Masa Habis</p>
+                    <p className="text-4xl font-black text-gray-800 tracking-tight">
+                      {spList.filter(s => s.status === "Selesai" || s.status === "Dibatalkan").length}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Main Card: Search, Filter & Floating Row Table */}
+              <div className="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 overflow-hidden">
+                {/* Header / Filter Toolbar */}
+                <div className="p-8 border-b border-gray-100 flex flex-col md:flex-row md:justify-between md:items-center bg-gray-50/50 gap-4">
+                  <div className="flex flex-col md:flex-row items-center space-y-3 md:space-y-0 md:space-x-4 w-full md:w-auto flex-1">
+                    <div className="relative w-full md:w-72">
+                      <input
+                        type="text"
+                        value={spSearchQuery}
+                        onChange={(e) => setSpSearchQuery(e.target.value)}
+                        placeholder="Cari nama, NIK, atau nomor SP..."
+                        className="w-full border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm text-gray-700 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all bg-white"
+                      />
+                      <i className="fa-solid fa-search absolute left-4 top-3 text-gray-400"></i>
+                    </div>
+
+                    <div className="flex items-center space-x-3 w-full md:w-auto">
+                      <select
+                        value={spFilterTingkat}
+                        onChange={(e) => setSpFilterTingkat(e.target.value)}
+                        className="w-full md:w-auto border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium text-gray-700 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all bg-white"
+                      >
+                        <option value="all">Semua Tingkat SP</option>
+                        <option value="Surat Teguran">Surat Teguran</option>
+                        <option value="SP 1">SP 1</option>
+                        <option value="SP 2">SP 2</option>
+                        <option value="SP 3">SP 3</option>
+                      </select>
+
+                      <select
+                        value={spFilterStatus}
+                        onChange={(e) => setSpFilterStatus(e.target.value)}
+                        className="w-full md:w-auto border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium text-gray-700 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all bg-white"
+                      >
+                        <option value="all">Semua Status</option>
+                        <option value="Aktif">Aktif</option>
+                        <option value="Selesai">Selesai</option>
+                        <option value="Dibatalkan">Dibatalkan</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-3 w-full md:w-auto">
+                    <button
+                      type="button"
+                      onClick={handleOpenAddSpModal}
+                      className="w-full md:w-auto bg-pilar-darker hover:bg-black text-pilar-gold font-bold px-6 py-2.5 rounded-xl shadow-md hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                    >
+                      <i className="fa-solid fa-file-circle-plus"></i>
+                      <span>Terbitkan SP Baru</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Table with Floating Rows */}
+                <div className="overflow-x-auto p-6 -mt-2">
+                  {(() => {
+                    const filtered = spList.filter(s => {
+                      const matchSearch = !spSearchQuery.trim() || 
+                        (s.karyawanNama || "").toLowerCase().includes(spSearchQuery.toLowerCase()) ||
+                        (s.karyawanNik || "").toLowerCase().includes(spSearchQuery.toLowerCase()) ||
+                        (s.nomorSurat || "").toLowerCase().includes(spSearchQuery.toLowerCase()) ||
+                        (s.alasanPelanggaran || "").toLowerCase().includes(spSearchQuery.toLowerCase());
+                      const matchTingkat = spFilterTingkat === "all" || s.tingkatSp === spFilterTingkat;
+                      const matchStatus = spFilterStatus === "all" || s.status === spFilterStatus;
+                      return matchSearch && matchTingkat && matchStatus;
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="py-16 text-center">
+                          <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-100">
+                            <i className="fa-solid fa-folder-open text-3xl text-gray-300"></i>
+                          </div>
+                          <p className="text-gray-500 font-medium text-lg">Tidak ada Surat Peringatan ditemukan</p>
+                          <p className="text-xs text-gray-400 mt-1">Belum ada data SP yang sesuai kriteria pencarian saat ini.</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <table className="w-full text-left text-sm whitespace-nowrap border-separate" style={{ borderSpacing: "0 16px" }}>
+                        <thead>
+                          <tr className="text-gray-500 font-semibold">
+                            <th className="px-6 py-2 font-medium">Nomor & Tanggal</th>
+                            <th className="px-6 py-2 font-medium">Karyawan</th>
+                            <th className="px-6 py-2 font-medium">Tingkat Sanksi</th>
+                            <th className="px-6 py-2 font-medium">Alasan Pelanggaran</th>
+                            <th className="px-6 py-2 font-medium">Masa Berlaku</th>
+                            <th className="px-6 py-2 font-medium text-center">Tanda Terima</th>
+                            <th className="px-6 py-2 font-medium text-center">Status</th>
+                            <th className="px-6 py-2 font-medium text-right">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map((sp) => {
+                            const emp = karyawanList.find(k => k.id === sp.karyawanId || k.nama === sp.karyawanNama || (k as any).noInduk === sp.karyawanNik);
+                            const foto = emp?.foto;
+
+                            return (
+                              <tr key={sp.id} className="group transition-all duration-300 hover:-translate-y-1 relative z-10">
+                                {/* Nomor & Tanggal */}
+                                <td className="px-6 py-5 bg-white rounded-l-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-l border-gray-100 group-hover:border-pilar-gold/40 transition-all">
+                                  <div className="font-mono font-extrabold text-gray-800 text-sm">{sp.nomorSurat}</div>
+                                  <div className="text-xs text-gray-400 mt-1 flex items-center gap-1.5 font-medium">
+                                    <i className="fa-solid fa-calendar-days text-[11px] text-gray-400"></i>
+                                    <span>{sp.tanggalTerbit}</span>
+                                  </div>
+                                </td>
+
+                                {/* Karyawan (dengan Avatar) */}
+                                <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all">
+                                  <div className="flex items-center space-x-4">
+                                    <div className="w-12 h-12 rounded-2xl bg-gray-50 overflow-hidden flex items-center justify-center font-black text-pilar-darker border border-gray-100 shadow-inner group-hover:border-pilar-gold/40 transition-colors shrink-0">
+                                      {foto ? (
+                                        <img src={foto} alt={sp.karyawanNama} className="w-full h-full object-cover" />
+                                      ) : (
+                                        <span className="group-hover:text-pilar-gold transition-colors text-sm">
+                                          {sp.karyawanNama ? sp.karyawanNama.substring(0, 2).toUpperCase() : "??"}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-col justify-center">
+                                      <div className="font-extrabold text-gray-800 text-base">{sp.karyawanNama}</div>
+                                      <div className="text-[11px] text-gray-500 mt-0.5 font-semibold tracking-wide">
+                                        {sp.karyawanPosisi || "Karyawan"} • NIK: {sp.karyawanNik || "-"}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+
+                                {/* Tingkat SP - 3 Colors: Navy, Gold, Gray */}
+                                <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all">
+                                  <span className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-sm border inline-block ${
+                                    sp.tingkatSp === "Surat Teguran" ? "bg-gray-100 text-gray-700 border-gray-200" :
+                                    sp.tingkatSp === "SP 1" ? "bg-pilar-gold/15 text-pilar-darker border-pilar-gold/30" :
+                                    sp.tingkatSp === "SP 2" ? "bg-pilar-gold text-pilar-darker border-pilar-gold" :
+                                    "bg-pilar-darker text-pilar-gold border-pilar-darker"
+                                  }`}>
+                                    {sp.tingkatSp}
+                                  </span>
+                                </td>
+
+                                {/* Alasan Pelanggaran */}
+                                <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all max-w-xs">
+                                  <p className="font-semibold text-gray-800 text-sm truncate" title={sp.alasanPelanggaran}>{sp.alasanPelanggaran}</p>
+                                  {sp.detailPelanggaran && (
+                                    <p className="text-xs text-gray-400 mt-0.5 truncate" title={sp.detailPelanggaran}>{sp.detailPelanggaran}</p>
+                                  )}
+                                </td>
+
+                                {/* Masa Berlaku */}
+                                <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all">
+                                  <div className="text-xs text-gray-500 font-medium">{sp.berlakuMulai} s/d</div>
+                                  <div className="font-extrabold text-gray-800 text-sm mt-0.5">{sp.berlakuSampai}</div>
+                                </td>
+
+                                {/* Tanda Terima - Navy & Gray */}
+                                <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-center">
+                                  {sp.isAcknowledged ? (
+                                    <span className="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest bg-pilar-darker text-pilar-gold border border-pilar-darker inline-flex items-center gap-1.5 shadow-sm">
+                                      <i className="fa-solid fa-circle-check text-xs"></i>
+                                      <span>Diterima</span>
+                                    </span>
+                                  ) : (
+                                    <span className="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest bg-gray-100 text-gray-600 border border-gray-200 inline-flex items-center gap-1.5 shadow-sm">
+                                      <i className="fa-solid fa-clock text-xs"></i>
+                                      <span>Menunggu</span>
+                                    </span>
+                                  )}
+                                </td>
+
+                                {/* Status - Gold & Gray */}
+                                <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-center">
+                                  <span className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-sm border ${
+                                    sp.status === "Aktif" ? "bg-pilar-gold/20 text-pilar-darker border-pilar-gold/30 font-black" :
+                                    "bg-gray-100 text-gray-600 border-gray-200 font-bold"
+                                  }`}>
+                                    {sp.status}
+                                  </span>
+                                </td>
+
+                                {/* Aksi - Navy, Gold, Gray */}
+                                <td className="px-6 py-5 bg-white rounded-r-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-r border-gray-100 group-hover:border-pilar-gold/40 transition-all text-right">
+                                  <div className="flex items-center justify-end space-x-2">
+                                    <button 
+                                      type="button" 
+                                      onClick={() => setSelectedSpDetail(sp)}
+                                      className="inline-flex items-center space-x-2 px-3.5 py-2 bg-pilar-darker hover:bg-black text-pilar-gold font-bold rounded-xl text-xs transition-all shadow-md hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20 cursor-pointer"
+                                      title="Lihat Detail Pemberitahuan SP"
+                                    >
+                                      <i className="fa-solid fa-eye text-xs"></i>
+                                      <span>Detail</span>
+                                    </button>
+
+                                    {sp.status === "Aktif" && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUpdateSpStatus(sp.id!, "Selesai")}
+                                        className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-pilar-gold text-gray-600 hover:text-pilar-darker border border-gray-200 transition-all flex items-center justify-center cursor-pointer shadow-xs"
+                                        title="Tandai Sanksi Selesai"
+                                      >
+                                        <i className="fa-solid fa-check text-xs"></i>
+                                      </button>
+                                    )}
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSpToDelete(sp);
+                                        setIsDeleteSpModalOpen(true);
+                                      }}
+                                      className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-pilar-darker text-gray-500 hover:text-pilar-gold border border-gray-200 transition-all flex items-center justify-center cursor-pointer shadow-xs"
+                                      title="Hapus Surat Peringatan"
+                                    >
+                                      <i className="fa-solid fa-trash text-xs"></i>
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+              )}
             </div>
           )}
 
@@ -2550,37 +3380,56 @@ export default function AdminDesktopPage() {
                 <div className="overflow-x-auto p-6 -mt-2">
                   <table className="w-full text-left text-sm whitespace-nowrap border-separate" style={{borderSpacing: "0 16px"}}>
                     <thead>
-                      <tr className="text-gray-500 font-semibold">
-                        <th className="px-5 py-2 font-medium">Karyawan</th>
-                        <th className="px-5 py-2 text-right font-medium">Gaji Pokok / Bln</th>
-                        <th className="px-5 py-2 text-center font-medium">Hari Bolos (Alpa)</th>
-                        <th className="px-5 py-2 text-right font-medium">Pot. Alpa</th>
-                        <th className="px-5 py-2 text-right font-medium">BPJS TK ({bpjsTkRate}%)</th>
-                        <th className="px-5 py-2 text-right font-medium">BPJS Kes ({bpjsKesRate}%)</th>
-                        <th className="px-5 py-2 text-right font-medium">Gaji Bersih</th>
-                        <th className="px-5 py-2 text-center font-medium">Aksi</th>
+                      <tr className="text-gray-500 font-semibold border-b border-gray-100 text-xs uppercase tracking-wider">
+                        <th className="px-5 py-3 font-medium">Karyawan</th>
+                        <th className="px-5 py-3 text-right font-medium">Gaji Pokok</th>
+                        <th className="px-5 py-3 text-center font-medium">Pelanggaran (Denda)</th>
+                        <th className="px-5 py-3 text-center font-medium">Ketidakhadiran (No Work)</th>
+                        <th className="px-5 py-3 text-right font-medium">BPJS ({bpjsTkRate + bpjsKesRate}%)</th>
+                        <th className="px-5 py-3 text-right font-medium">Gaji Bersih</th>
+                        <th className="px-5 py-3 text-center font-medium">Aksi</th>
                       </tr>
                     </thead>
                     <tbody>
                       {karyawanList.map((k) => {
                         const gajiPokok = k.gajiPokok || 0;
-                        const nilaiPerHari = gajiPokok / workingDays;
                         
-                        // Hitung otomatis Alpa dari data laporan absensi bulan & tahun yang dipilih
-                        const jumlahBolos = riwayatLaporan.filter((l: any) => {
-                          if (l.nama !== k.nama || l.status !== "Alpa" || !l.tanggal) return false;
-                          const lDate = parseAttendanceDate(l.tanggal);
-                          return lDate && 
-                                 lDate.getMonth() + 1 === laporanBulan && 
-                                 lDate.getFullYear() === laporanTahun;
-                        }).length;
-                        
-                        const potonganAlpa = Math.round(jumlahBolos * nilaiPerHari);
+                        // Cari data kehadiran dari matrixLaporan yang sudah terhitung presisi
+                        const empMatrix = matrixLaporan.find(m => m.id === k.id || m.nama === k.nama) || { 
+                          tlm: 0, tam: 0, tap: 0, a: 0, i: 0, s: 0, c: 0, total: 0 
+                        };
+
+                        const tlm = empMatrix.tlm || 0;
+                        const tam = empMatrix.tam || 0;
+                        const tap = empMatrix.tap || 0;
+                        const a = empMatrix.a || 0;
+                        const i = empMatrix.i || 0;
+
+                        // 1. Denda Absensi Sesuai Aturan Perusahaan:
+                        // TLM = Rp 16.000, TAM = Rp 25.000, TAP = Rp 25.000
+                        const dendaTlm = tlm * 16000;
+                        const dendaTam = tam * 25000;
+                        const dendaTap = tap * 25000;
+                        const subtotalDenda = dendaTlm + dendaTam + dendaTap;
+                        // Sesuai PP 36/2021: Total denda finansial maksimal 25% dari upah sebulan
+                        const maxDenda = Math.round(gajiPokok * 0.25);
+                        const totalDenda = Math.min(subtotalDenda, maxDenda);
+
+                        // 2. Potongan Hari Kerja (Prinsip No Work No Pay):
+                        // Alpha (A) = Rp 144.818/hari, Izin Pribadi (I) = Rp 144.818/hari
+                        const potonganAlpha = a * 144818;
+                        const potonganIzin = i * 144818;
+                        const totalPotonganKehadiran = potonganAlpha + potonganIzin;
+
+                        // 3. Iuran BPJS Ketenagakerjaan & Kesehatan
                         const isIkutTk = k.bpjsTk !== false;
                         const isIkutKes = k.bpjsKes !== false;
                         const potBpjsTk = isIkutTk ? Math.round(gajiPokok * (bpjsTkRate / 100)) : 0;
                         const potBpjsKes = isIkutKes ? Math.round(gajiPokok * (bpjsKesRate / 100)) : 0;
-                        const gajiBersih = Math.max(0, gajiPokok - potonganAlpa - potBpjsTk - potBpjsKes);
+
+                        // 4. Total Potongan & Gaji Bersih
+                        const totalPotongan = totalDenda + totalPotonganKehadiran + potBpjsTk + potBpjsKes;
+                        const gajiBersih = Math.max(0, gajiPokok - totalPotongan);
 
                         return (
                           <tr key={k.id} className="group transition-all duration-300 hover:-translate-y-1 relative z-10">
@@ -2608,39 +3457,79 @@ export default function AdminDesktopPage() {
                               Rp {new Intl.NumberFormat('id-ID').format(gajiPokok)}
                             </td>
                             
+                            {/* Pelanggaran / Denda */}
                             <td className="px-5 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-center">
-                              <span className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-gray-50 border border-gray-100 font-bold text-gray-800 text-sm">
-                                {jumlahBolos}
-                              </span>
-                            </td>
-                            
-                            <td className="px-5 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-right font-bold text-gray-500">
-                              - Rp {new Intl.NumberFormat('id-ID').format(potonganAlpa)}
+                              {totalDenda > 0 ? (
+                                <div className="inline-flex flex-col items-center gap-1">
+                                  <div className="flex items-center gap-1">
+                                    {tlm > 0 && <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-bold text-[10px] border border-amber-200" title={`Terlambat Masuk (TLM): ${tlm}x`}>TLM:{tlm}</span>}
+                                    {tam > 0 && <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-bold text-[10px] border border-red-200" title={`Tidak Absen Masuk (TAM): ${tam}x`}>TAM:{tam}</span>}
+                                    {tap > 0 && <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-bold text-[10px] border border-purple-200" title={`Tidak Absen Pulang (TAP): ${tap}x`}>TAP:{tap}</span>}
+                                  </div>
+                                  <span className="text-xs font-bold text-red-600">- Rp {new Intl.NumberFormat('id-ID').format(totalDenda)}</span>
+                                </div>
+                              ) : (
+                                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/60">Tertib (Rp 0)</span>
+                              )}
                             </td>
 
+                            {/* Ketidakhadiran (No Work No Pay) */}
+                            <td className="px-5 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-center">
+                              {totalPotonganKehadiran > 0 ? (
+                                <div className="inline-flex flex-col items-center gap-1">
+                                  <div className="flex items-center gap-1">
+                                    {a > 0 && <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold text-[10px] border border-rose-200" title={`Alpha: ${a} hari`}>A:{a}</span>}
+                                    {i > 0 && <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-200" title={`Izin: ${i} hari`}>I:{i}</span>}
+                                  </div>
+                                  <span className="text-xs font-bold text-red-600">- Rp {new Intl.NumberFormat('id-ID').format(totalPotonganKehadiran)}</span>
+                                </div>
+                              ) : (
+                                <span className="text-xs font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded-lg border border-gray-100">0 Hari</span>
+                              )}
+                            </td>
+
+                            {/* BPJS */}
                             <td className="px-5 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-right font-bold text-gray-500">
-                              {isIkutTk ? (
-                                <span>- Rp {new Intl.NumberFormat('id-ID').format(potBpjsTk)}</span>
+                              {(potBpjsTk + potBpjsKes) > 0 ? (
+                                <span>- Rp {new Intl.NumberFormat('id-ID').format(potBpjsTk + potBpjsKes)}</span>
                               ) : (
                                 <span className="text-[11px] px-2.5 py-1 rounded-lg bg-gray-100 text-gray-400 font-semibold inline-block">Nonaktif</span>
                               )}
                             </td>
-
-                            <td className="px-5 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-right font-bold text-gray-500">
-                              {isIkutKes ? (
-                                <span>- Rp {new Intl.NumberFormat('id-ID').format(potBpjsKes)}</span>
-                              ) : (
-                                <span className="text-[11px] px-2.5 py-1 rounded-lg bg-gray-100 text-gray-400 font-semibold inline-block">Nonaktif</span>
-                              )}
-                            </td>
                             
+                            {/* Gaji Bersih */}
                             <td className="px-5 py-5 bg-gray-50/50 shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-right font-black text-pilar-darker text-base">
                               Rp {new Intl.NumberFormat('id-ID').format(gajiBersih)}
                             </td>
                             
+                            {/* Aksi Bayar */}
                             <td className="px-5 py-5 bg-white rounded-r-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-r border-gray-100 group-hover:border-pilar-gold/40 transition-all text-center">
                               <button 
-                                onClick={() => handleBayarGaji(k.id, gajiBersih, k.nama, gajiPokok, potonganAlpa, jumlahBolos, potBpjsTk, potBpjsKes, bpjsTkRate, bpjsKesRate)}
+                                onClick={() => handleBayarGaji(
+                                  k.id, 
+                                  gajiBersih, 
+                                  k.nama, 
+                                  gajiPokok, 
+                                  potonganAlpha, 
+                                  a, 
+                                  potBpjsTk, 
+                                  potBpjsKes, 
+                                  bpjsTkRate, 
+                                  bpjsKesRate,
+                                  {
+                                    tlm,
+                                    tam,
+                                    tap,
+                                    dendaTlm,
+                                    dendaTam,
+                                    dendaTap,
+                                    totalDenda,
+                                    izin: i,
+                                    potonganIzin,
+                                    totalPotonganKehadiran,
+                                    totalPotongan
+                                  }
+                                )}
                                 disabled={gajiBersih <= 0}
                                 className={`font-bold px-6 py-2.5 rounded-xl transition-all text-sm flex items-center justify-center mx-auto space-x-2 ${
                                   gajiBersih > 0 ? "bg-pilar-darker text-pilar-gold hover:bg-black shadow-md hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20" : "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
@@ -2751,7 +3640,7 @@ export default function AdminDesktopPage() {
           {activeMenu === "pengaturan" && (
             <div className="space-y-6 animate-slide-up">
               {/* Sub-tab Navigation */}
-              <div className="bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 flex items-center space-x-2 max-w-md">
+              <div className="bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 flex items-center space-x-2 max-w-2xl">
                 <button
                   type="button"
                   onClick={() => setPengaturanSubTab("lokasi")}
@@ -2764,23 +3653,48 @@ export default function AdminDesktopPage() {
                   <i className="fa-solid fa-map-location-dot"></i>
                   <span>Titik Lokasi & GPS</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setPengaturanSubTab("audit")}
-                  className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center space-x-2 ${
-                    pengaturanSubTab === "audit"
-                      ? "bg-pilar-darker text-pilar-gold shadow-md"
-                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
-                >
-                  <i className="fa-solid fa-shield-halved"></i>
-                  <span>Log Aktivitas Admin</span>
-                  {auditLogs.length > 0 && (
-                    <span className="ml-1 px-2 py-0.5 text-[10px] bg-pilar-gold text-pilar-darker rounded-full font-black">
-                      {auditLogs.length}
-                    </span>
-                  )}
-                </button>
+
+                {/* Sub-tab Kelola Admin: Khusus Super Admin */}
+                {isSuperAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setPengaturanSubTab("admins")}
+                    className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center space-x-2 ${
+                      pengaturanSubTab === "admins"
+                        ? "bg-pilar-darker text-pilar-gold shadow-md"
+                        : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                    }`}
+                  >
+                    <i className="fa-solid fa-user-shield"></i>
+                    <span>Kelola Admin</span>
+                    {adminList.length > 0 && (
+                      <span className="ml-1 px-2 py-0.5 text-[10px] bg-pilar-gold text-pilar-darker rounded-full font-black">
+                        {adminList.length}
+                      </span>
+                    )}
+                  </button>
+                )}
+
+                {/* Sub-tab Audit Log: Khusus Super Admin */}
+                {isSuperAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setPengaturanSubTab("audit")}
+                    className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center space-x-2 ${
+                      pengaturanSubTab === "audit"
+                        ? "bg-pilar-darker text-pilar-gold shadow-md"
+                        : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                    }`}
+                  >
+                    <i className="fa-solid fa-shield-halved"></i>
+                    <span>Log Aktivitas</span>
+                    {auditLogs.length > 0 && (
+                      <span className="ml-1 px-2 py-0.5 text-[10px] bg-pilar-gold text-pilar-darker rounded-full font-black">
+                        {auditLogs.length}
+                      </span>
+                    )}
+                  </button>
+                )}
               </div>
 
               {/* Sub-tab 1: LOKASI */}
@@ -3014,6 +3928,233 @@ export default function AdminDesktopPage() {
                   </div>
                 </div>
               )}
+
+              {/* Sub-tab 3: KELOLA AKUN ADMIN (Khusus Super Admin) */}
+              {pengaturanSubTab === "admins" && isSuperAdmin && (
+                <div className="space-y-6 animate-slide-up">
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Card 1: Total Admin */}
+                    <div className="group bg-white p-5 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 border border-gray-100/80 flex items-center space-x-3.5 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-pilar-gold/5 rounded-full blur-2xl -mr-8 -mt-8 group-hover:bg-pilar-gold/15 transition-colors"></div>
+                      <div className="w-12 h-12 bg-pilar-darker text-pilar-gold rounded-xl flex items-center justify-center text-xl shadow-md shadow-pilar-darker/10 group-hover:scale-105 transition-transform shrink-0 relative z-10">
+                        <i className="fa-solid fa-users-gear"></i>
+                      </div>
+                      <div className="min-w-0 relative z-10">
+                        <p className="text-xs text-gray-500 font-medium truncate">Total Administrator</p>
+                        <p className="text-xl font-bold text-gray-800 tracking-tight mt-0.5">
+                          {adminList.length} Akun
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Card 2: Super Admin */}
+                    <div className="group bg-white p-5 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 border border-gray-100/80 flex items-center space-x-3.5 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-pilar-gold/5 rounded-full blur-2xl -mr-8 -mt-8 group-hover:bg-pilar-gold/15 transition-colors"></div>
+                      <div className="w-12 h-12 bg-pilar-darker text-pilar-gold rounded-xl flex items-center justify-center text-xl shadow-md shadow-pilar-darker/10 group-hover:scale-105 transition-transform shrink-0 relative z-10">
+                        <i className="fa-solid fa-crown"></i>
+                      </div>
+                      <div className="min-w-0 relative z-10">
+                        <p className="text-xs text-gray-500 font-medium truncate">Super Administrator</p>
+                        <p className="text-xl font-bold text-gray-800 tracking-tight mt-0.5">
+                          {adminList.filter(a => a.role === 'superadmin').length} Akun
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Card 3: Admin HRD */}
+                    <div className="group bg-white p-5 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 border border-gray-100/80 flex items-center space-x-3.5 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-pilar-gold/5 rounded-full blur-2xl -mr-8 -mt-8 group-hover:bg-pilar-gold/15 transition-colors"></div>
+                      <div className="w-12 h-12 bg-pilar-darker text-pilar-gold rounded-xl flex items-center justify-center text-xl shadow-md shadow-pilar-darker/10 group-hover:scale-105 transition-transform shrink-0 relative z-10">
+                        <i className="fa-solid fa-user-shield"></i>
+                      </div>
+                      <div className="min-w-0 relative z-10">
+                        <p className="text-xs text-gray-500 font-medium truncate">Admin HRD / Operasional</p>
+                        <p className="text-xl font-bold text-gray-800 tracking-tight mt-0.5">
+                          {adminList.filter(a => a.role !== 'superadmin').length} Akun
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Main Card */}
+                  <div className="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 overflow-hidden">
+                    {/* Header */}
+                    <div className="p-8 border-b border-gray-100 flex flex-col md:flex-row md:justify-between md:items-center bg-gray-50/50 space-y-4 md:space-y-0">
+                      <div>
+                        <h3 className="font-extrabold text-gray-800 text-xl tracking-tight">Manajemen Akun Administrator</h3>
+                        <p className="text-sm text-gray-500 mt-1">Kelola personil yang memiliki hak akses dashboard dan sistem PT. PILAR.</p>
+                      </div>
+                      <div className="flex flex-col md:flex-row items-center space-y-3 md:space-y-0 md:space-x-4 w-full md:w-auto">
+                        <div className="relative w-full md:w-auto">
+                          <input 
+                            type="text" 
+                            placeholder="Cari admin..." 
+                            value={adminSearch}
+                            onChange={(e) => setAdminSearch(e.target.value)}
+                            className="w-full md:w-64 border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm text-gray-700 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all bg-white" 
+                          />
+                          <i className="fa-solid fa-search absolute left-4 top-3 text-gray-400"></i>
+                        </div>
+                        <button 
+                          type="button"
+                          onClick={handleOpenAddAdmin}
+                          className="w-full md:w-auto bg-pilar-darker hover:bg-black text-pilar-gold font-bold px-6 py-2.5 rounded-xl shadow-md hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20 transition-all flex items-center justify-center space-x-2"
+                        >
+                          <i className="fa-solid fa-plus text-xs"></i>
+                          <span>Tambah Admin</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Table Container */}
+                    <div className="p-8 bg-gray-50/30 min-h-[500px]">
+                      <div className="overflow-x-auto -mt-2">
+                        <table className="w-full text-left text-sm whitespace-nowrap border-separate" style={{borderSpacing: "0 16px"}}>
+                          <thead>
+                            <tr className="text-gray-500 font-semibold">
+                              <th className="px-6 py-2 font-medium">Administrator</th>
+                              <th className="px-6 py-2 font-medium">NIK</th>
+                              <th className="px-6 py-2 font-medium">Email Akses</th>
+                              <th className="px-6 py-2 font-medium">Tingkat Akses</th>
+                              <th className="px-6 py-2 font-medium">Status</th>
+                              <th className="px-6 py-2 text-right font-medium">Aksi</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(() => {
+                              const filteredAdmins = adminList.filter(adm => {
+                                const q = adminSearch.toLowerCase().trim();
+                                if (!q) return true;
+                                return (adm.nama || "").toLowerCase().includes(q) || (adm.email || "").toLowerCase().includes(q) || (adm.nik || "").toLowerCase().includes(q);
+                              });
+
+                              if (filteredAdmins.length === 0) {
+                                return (
+                                  <tr>
+                                    <td colSpan={6} className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-200">
+                                      <div className="w-16 h-16 rounded-full bg-gray-50 text-gray-400 flex items-center justify-center mx-auto mb-3 text-2xl">
+                                        <i className="fa-solid fa-user-xmark"></i>
+                                      </div>
+                                      <p className="font-bold text-gray-700 text-base">Tidak ada akun admin yang sesuai</p>
+                                      <p className="text-xs text-gray-400 mt-1">Coba sesuaikan kata kunci pencarian Anda.</p>
+                                    </td>
+                                  </tr>
+                                );
+                              }
+
+                              return filteredAdmins.map((adm) => {
+                                const isSelf = adm.uid === auth?.currentUser?.uid || adm.email.toLowerCase() === currentAdminEmail.toLowerCase();
+                                const isSuper = adm.role === 'superadmin';
+
+                                return (
+                                  <tr key={adm.uid} className="group transition-all duration-300 hover:-translate-y-1 relative z-10">
+                                    {/* 1. Administrator */}
+                                    <td className="px-6 py-5 bg-white rounded-l-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-l border-gray-100 group-hover:border-pilar-gold/40 transition-all">
+                                      <div className="flex items-center space-x-4">
+                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-black border shadow-inner transition-colors ${
+                                          isSuper 
+                                            ? "bg-pilar-darker text-pilar-gold border-pilar-gold/40" 
+                                            : "bg-gray-50 text-pilar-darker border-gray-100 group-hover:bg-pilar-darker group-hover:text-pilar-gold"
+                                        }`}>
+                                          {isSuper ? (
+                                            <i className="fa-solid fa-crown text-sm text-pilar-gold"></i>
+                                          ) : (
+                                            <span>{(adm.nama || "A").substring(0, 2).toUpperCase()}</span>
+                                          )}
+                                        </div>
+                                        <div>
+                                          <div className="flex items-center space-x-2">
+                                            <span className="font-extrabold text-gray-800 text-base">{adm.nama}</span>
+                                            {isSelf && (
+                                              <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-gray-100 text-gray-700 border border-gray-200">
+                                                Anda
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="text-xs text-gray-400 mt-0.5">
+                                            {isSuper ? "Master Administrator" : "Admin Operasional / HRD"}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </td>
+
+                                    {/* 2. NIK */}
+                                    <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-gray-700">
+                                      <span className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-mono font-bold bg-gray-50 text-gray-800 border border-gray-200 shadow-2xs">
+                                        <i className="fa-solid fa-id-card text-gray-400 mr-2 text-[11px]"></i>
+                                        {adm.nik || "-"}
+                                      </span>
+                                    </td>
+
+                                    {/* 3. Email */}
+                                    <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-gray-600 font-medium">
+                                      <div className="flex items-center space-x-2">
+                                        <i className="fa-regular fa-envelope text-gray-400"></i>
+                                        <span className="font-mono text-xs">{adm.email}</span>
+                                      </div>
+                                    </td>
+
+                                    {/* 4. Tingkat Akses */}
+                                    <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all">
+                                      {isSuper ? (
+                                        <span className="px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-pilar-darker text-pilar-gold border border-pilar-gold/30 inline-flex items-center space-x-1.5 shadow-xs">
+                                          <i className="fa-solid fa-crown text-pilar-gold text-xs"></i>
+                                          <span>Super Admin</span>
+                                        </span>
+                                      ) : (
+                                        <span className="px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-gray-100 text-gray-700 border border-gray-200 inline-flex items-center space-x-1.5">
+                                          <i className="fa-solid fa-shield text-gray-400 text-xs"></i>
+                                          <span>Admin HRD</span>
+                                        </span>
+                                      )}
+                                    </td>
+
+                                    {/* 5. Status */}
+                                    <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all">
+                                      <span className="px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-gray-100 text-gray-700 border border-gray-200 inline-flex items-center space-x-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-pilar-darker"></span>
+                                        <span>Aktif</span>
+                                      </span>
+                                    </td>
+
+                                    {/* 6. Aksi */}
+                                    <td className="px-6 py-5 bg-white rounded-r-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-r border-gray-100 group-hover:border-pilar-gold/40 transition-all">
+                                      <div className="flex justify-end space-x-2">
+                                        <button 
+                                          type="button"
+                                          onClick={() => handleOpenEditAdmin(adm)}
+                                          title="Edit Akun Admin"
+                                          className="w-9 h-9 rounded-xl bg-gray-50 text-gray-500 hover:text-pilar-darker hover:bg-white border border-gray-100 hover:border-gray-200 shadow-sm flex items-center justify-center transition-all cursor-pointer"
+                                        >
+                                          <i className="fa-solid fa-pen text-sm"></i>
+                                        </button>
+                                        <button 
+                                          type="button"
+                                          disabled={isSelf}
+                                          onClick={() => handleOpenDeleteAdmin(adm)}
+                                          title={isSelf ? "Tidak dapat menghapus akun Anda sendiri" : "Hapus Akun Admin"}
+                                          className={`w-9 h-9 rounded-xl border shadow-sm flex items-center justify-center transition-all ${
+                                            isSelf
+                                              ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
+                                              : "bg-gray-50 text-gray-400 hover:text-red-500 hover:bg-white border-gray-100 hover:border-red-100 cursor-pointer"
+                                          }`}
+                                        >
+                                          <i className="fa-solid fa-trash text-sm"></i>
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              });
+                            })()}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -3172,63 +4313,93 @@ export default function AdminDesktopPage() {
         </div>
       )}
 
-      {/* Confirmation Modal */}
+      {/* Confirmation Modal (Standardized) */}
       {confirmModal?.isOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4 animate-fade-in">
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200 relative">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden border border-gray-100 animate-in zoom-in-95 duration-200 p-8 text-center relative">
+            <div className={`absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none ${
+              confirmModal.variant === "primary" ? "bg-pilar-gold/15" : "bg-red-500/10"
+            }`}></div>
             
-            <div className="p-8 text-center relative z-10">
-              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-red-100 shadow-inner">
-                <i className="fa-solid fa-triangle-exclamation text-4xl"></i>
-              </div>
-              <h3 className="font-extrabold text-gray-900 text-2xl tracking-tight mb-2">Konfirmasi Tindakan</h3>
-              <p className="text-gray-500 text-sm leading-relaxed">{confirmModal.message}</p>
+            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl shadow-inner border relative z-10 ${
+              confirmModal.variant === "primary" 
+                ? "bg-pilar-darker text-pilar-gold border-pilar-gold/20" 
+                : "bg-red-50 text-red-600 border-red-100"
+            }`}>
+              <i className={confirmModal.icon || (confirmModal.variant === "primary" ? "fa-solid fa-money-bill-wave" : "fa-solid fa-trash-can")}></i>
             </div>
-            <div className="bg-gray-50/80 px-8 py-5 flex space-x-3 justify-center border-t border-gray-100 relative z-10">
+
+            <h3 className="font-extrabold text-gray-900 text-xl tracking-tight mb-2 relative z-10">
+              {confirmModal.title || "Konfirmasi Tindakan"}
+            </h3>
+
+            <p className="text-gray-500 text-sm leading-relaxed mb-6 relative z-10">
+              {confirmModal.message}
+            </p>
+
+            <div className="flex items-center justify-center gap-3 relative z-10">
               <button 
+                type="button"
                 onClick={() => setConfirmModal(null)} 
-                className="px-5 py-3 text-gray-600 font-bold hover:bg-gray-200 rounded-xl transition-colors w-1/2"
+                className="flex-1 py-3 px-4 rounded-xl border border-gray-200 text-gray-700 text-sm font-bold hover:bg-gray-50 transition-all cursor-pointer"
               >
-                Batal
+                {confirmModal.cancelText || "Batal"}
               </button>
               <button 
+                type="button"
                 onClick={confirmModal.onConfirm} 
-                className="px-5 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-all shadow-md hover:shadow-lg focus:ring-4 focus:ring-red-600/20 w-1/2"
+                className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                  confirmModal.variant === "primary"
+                    ? "bg-pilar-darker hover:bg-black text-pilar-gold focus:ring-4 focus:ring-pilar-darker/20"
+                    : "bg-red-600 hover:bg-red-700 text-white focus:ring-4 focus:ring-red-600/20"
+                }`}
               >
-                Ya, Lanjutkan
+                {confirmModal.confirmText || "Ya, Lanjutkan"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Reject Modal */}
+      {/* Reject Modal (Standardized) */}
       {rejectModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4 animate-fade-in">
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 relative">
-            <div className="p-8 text-center relative z-10">
-              <h3 className="font-extrabold text-gray-900 text-xl tracking-tight mb-4">Kembalikan untuk Direvisi</h3>
-              <p className="text-gray-500 text-sm mb-4">Berikan alasan mengapa pengajuan ini tidak disetujui atau dokumen apa yang masih kurang.</p>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden border border-gray-100 animate-in zoom-in-95 duration-200 p-8 text-center relative">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 text-2xl shadow-inner border border-amber-100 relative z-10">
+              <i className="fa-solid fa-rotate-left"></i>
+            </div>
+            <h3 className="font-extrabold text-gray-900 text-xl tracking-tight mb-2 relative z-10">Kembalikan untuk Direvisi</h3>
+            <p className="text-gray-500 text-sm leading-relaxed mb-4 relative z-10">
+              Berikan catatan alasan mengapa permohonan ini dikembalikan atau dokumen apa yang perlu dilengkapi.
+            </p>
+
+            <div className="mb-6 relative z-10 text-left">
               <textarea 
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Misal: Mohon lampirkan surat dokter yang asli / foto lebih jelas..."
-                className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker text-sm shadow-sm transition-all min-h-[100px] resize-none"
+                placeholder="Misal: Mohon lampirkan surat keterangan dokter asli / foto lebih jelas..."
+                rows={3}
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker text-sm shadow-sm transition-all resize-none bg-gray-50/50"
               ></textarea>
             </div>
-            <div className="bg-gray-50/80 px-8 py-5 flex space-x-3 justify-end border-t border-gray-100 relative z-10">
+
+            <div className="flex items-center justify-center gap-3 relative z-10">
               <button 
+                type="button"
                 onClick={() => setRejectModalOpen(false)} 
-                className="px-5 py-3 text-gray-600 font-bold hover:bg-gray-200 rounded-xl transition-colors"
+                className="flex-1 py-3 px-4 rounded-xl border border-gray-200 text-gray-700 text-sm font-bold hover:bg-gray-50 transition-all cursor-pointer"
               >
                 Batal
               </button>
               <button 
+                type="button"
                 onClick={handleRejectSubmit} 
-                className="px-5 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-all shadow-md hover:shadow-lg focus:ring-4 focus:ring-red-600/20"
+                className="flex-1 py-3 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold shadow-md hover:shadow-lg focus:ring-4 focus:ring-red-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                Kirim Revisi
+                <i className="fa-solid fa-paper-plane text-xs"></i>
+                <span>Kirim Revisi</span>
               </button>
             </div>
           </div>
@@ -3276,24 +4447,18 @@ export default function AdminDesktopPage() {
             {/* Content (Scrollable on screen, Full on Print) */}
             <div id="print-section" className="overflow-y-auto p-8 md:p-10 text-black font-sans bg-white print:p-0 print:overflow-visible flex-1 relative" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
               {/* KOP SURAT PERUSAHAAN */}
-              <div className="hidden print:flex items-center justify-between border-b-2 border-pilar-darker pb-4 mb-6">
-                <div className="flex items-center space-x-4">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img 
-                    src="https://res.cloudinary.com/sgcxykbd/image/upload/v1788834500/logo_horizontal_2.png" 
-                    alt="Logo PT. Pilar Sentra Solusi" 
-                    className="h-14 object-contain" 
-                  />
-                </div>
-                <div className="text-right">
-                  <h1 className="text-xl font-black tracking-tight text-pilar-darker uppercase">PT. PILAR SENTRA SOLUSI</h1>
-                  <p className="text-xs text-gray-600 font-semibold">General Contractor & IT Solutions</p>
-                  <p className="text-[11px] text-gray-500">Grand Slipi Tower Lt. 9, Jakarta Barat 11480 | info@pilarsentrasolusi.com</p>
-                </div>
+              <div className="border-b-2 border-pilar-darker pb-4 mb-6">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img 
+                  src="https://res.cloudinary.com/sgcxykbd/image/upload/v1789396132/Surat_Peringatan_2_Jufrianto_1_-1.png" 
+                  alt="Logo PT. Pilar Sentra Solusi" 
+                  className="h-[73px] object-contain" 
+                  onError={(e) => { e.currentTarget.src = '/logo-pilar.png'; }}
+                />
               </div>
 
               {/* JUDUL FORMULIR */}
-              <div className="hidden print:block text-center my-6">
+              <div className="text-center my-6">
                 <h2 className="text-lg font-black uppercase tracking-wider text-pilar-darker border-b-2 border-pilar-gold inline-block pb-1">
                   FORMULIR PENGAJUAN CUTI & IZIN KARYAWAN
                 </h2>
@@ -3302,7 +4467,7 @@ export default function AdminDesktopPage() {
 
               {/* INFORMASI PEGAWAI */}
               <div className="mb-6">
-                <div className="bg-pilar-darker text-pilar-gold font-bold px-4 py-2 text-xs uppercase tracking-wider rounded-t-xl">
+                <div className="bg-[#114289] text-white font-bold px-4 py-2 text-xs uppercase tracking-wider rounded-t-xl" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                   A. Informasi Pegawai
                 </div>
                 <div className="border border-gray-300 border-t-0 rounded-b-xl p-4 grid grid-cols-2 gap-4 text-xs bg-gray-50/50">
@@ -3335,22 +4500,20 @@ export default function AdminDesktopPage() {
 
               {/* DETAIL CUTI & IZIN */}
               <div className="mb-6">
-                <div className="bg-pilar-darker text-pilar-gold font-bold px-4 py-2 text-xs uppercase tracking-wider rounded-t-xl">
+                <div className="bg-[#114289] text-white font-bold px-4 py-2 text-xs uppercase tracking-wider rounded-t-xl" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                   B. Detail Pengajuan
                 </div>
                 <div className="border border-gray-300 border-t-0 rounded-b-xl p-4 text-xs bg-white">
                   <div className="font-bold text-gray-800 mb-2.5">Kategori / Jenis Pengajuan:</div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-y-3 gap-x-4 mb-5 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    {["Cuti Tahunan", "Cuti Sakit", "Cuti Melahirkan", "Cuti Lembur", "Cuti Haid", "Cuti Khusus", "Cuti Tanpa Bayar", "Izin Pribadi"].map((jenis) => (
-                      <div key={jenis} className="flex items-center gap-2.5">
-                        <div className={`w-4 h-4 rounded border flex items-center justify-center font-bold text-xs ${selectedPengajuan.type.includes(jenis.split(' ')[1]) || (selectedPengajuan.type === 'Cuti Khusus' && jenis === 'Cuti Khusus') ? 'bg-pilar-darker border-pilar-darker text-pilar-gold' : 'border-gray-400 bg-white'}`}>
-                          {(selectedPengajuan.type.includes(jenis.split(' ')[1]) || (selectedPengajuan.type === 'Cuti Khusus' && jenis === 'Cuti Khusus')) ? "✓" : ""}
-                        </div>
-                        <span className={(selectedPengajuan.type.includes(jenis.split(' ')[1]) || (selectedPengajuan.type === 'Cuti Khusus' && jenis === 'Cuti Khusus')) ? "font-bold text-gray-900" : "text-gray-600"}>
-                          {jenis}
-                        </span>
+                  <div className="mb-5 p-3 bg-gray-50 rounded-lg border border-gray-200 inline-block min-w-[200px]">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-4 h-4 rounded border flex items-center justify-center font-bold text-xs bg-[#114289] border-[#114289] text-white">
+                        ✓
                       </div>
-                    ))}
+                      <span className="font-bold text-gray-900">
+                        {selectedPengajuan.type}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -3414,6 +4577,16 @@ export default function AdminDesktopPage() {
                       <span className="font-bold text-gray-900">{selectedPengajuan.delegationName || "__________________"}</span>
                     </div>
                     <div className="grid grid-cols-[80px_auto_1fr] gap-2 border-b border-gray-100 pb-1.5">
+                      <span className="text-gray-500 font-medium">No. Induk (NIK)</span>
+                      <span className="text-gray-400">:</span>
+                      <span className="font-mono font-bold text-gray-800">
+                        {(() => {
+                          const emp = karyawanList.find(k => k.id === selectedPengajuan.delegationId || k.nama === selectedPengajuan.delegationName);
+                          return selectedPengajuan.delegationNik || emp?.noInduk || "-";
+                        })()}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-[80px_auto_1fr] gap-2 border-b border-gray-100 pb-1.5">
                       <span className="text-gray-500 font-medium">Jabatan</span>
                       <span className="text-gray-400">:</span>
                       <span className="font-medium text-gray-800">{selectedPengajuan.delegationRole || "__________________"}</span>
@@ -3426,7 +4599,7 @@ export default function AdminDesktopPage() {
               </div>
 
               {/* TANDA TANGAN */}
-              <div className="hidden print:grid grid-cols-3 gap-6 text-center text-xs mt-10">
+              <div className="grid grid-cols-3 gap-6 text-center text-xs mt-10">
                 <div className="flex flex-col h-full justify-between">
                   <div>
                     <p className="text-gray-600 font-medium mb-1">Diajukan Oleh,</p>
@@ -3436,7 +4609,14 @@ export default function AdminDesktopPage() {
                     <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 mx-auto w-4/5 uppercase">
                       {selectedPengajuan.karyawanNama}
                     </p>
-                    <p className="text-gray-500 mt-1">{selectedPengajuan.karyawanPosisi}</p>
+                    <p className="text-gray-700 font-mono text-[11px] mt-1 font-semibold">
+                      {(() => {
+                        const emp = karyawanList.find(k => k.id === selectedPengajuan.karyawanId || k.nama === selectedPengajuan.karyawanNama);
+                        const nik = selectedPengajuan.karyawanNik || emp?.noInduk;
+                        return nik ? `NIK: ${nik}` : "NIK: -";
+                      })()}
+                    </p>
+                    <p className="text-gray-500 text-[10px]">{selectedPengajuan.karyawanPosisi}</p>
                   </div>
                 </div>
                 
@@ -3449,7 +4629,17 @@ export default function AdminDesktopPage() {
                     <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 mx-auto w-4/5">
                       {selectedPengajuan.delegationName || "__________________"}
                     </p>
-                    <p className="text-gray-500 mt-1">{selectedPengajuan.delegationRole || "__________________"}</p>
+                    <p className="text-gray-700 font-mono text-[11px] mt-1 font-semibold">
+                      {(() => {
+                        if (!selectedPengajuan.delegationName || selectedPengajuan.delegationName === "__________________") {
+                          return "NIK: __________________";
+                        }
+                        const emp = karyawanList.find(k => k.id === selectedPengajuan.delegationId || k.nama === selectedPengajuan.delegationName);
+                        const nik = selectedPengajuan.delegationNik || emp?.noInduk;
+                        return nik ? `NIK: ${nik}` : "NIK: -";
+                      })()}
+                    </p>
+                    <p className="text-gray-500 text-[10px]">{selectedPengajuan.delegationRole || "__________________"}</p>
                   </div>
                 </div>
 
@@ -3469,17 +4659,34 @@ export default function AdminDesktopPage() {
                         REJECTED
                       </div>
                     )}
-                    <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 mx-auto w-4/5">
-                      PT. PILAR SENTRA SOLUSI
+                    <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 mx-auto w-4/5 uppercase">
+                      {selectedPengajuan.approverNama || currentAdminName || "PT. PILAR SENTRA SOLUSI"}
                     </p>
-                    <p className="text-gray-500 mt-1">HR Manager / Direktur</p>
+                    <p className="text-gray-700 font-mono text-[11px] mt-1 font-semibold">
+                      {(selectedPengajuan.approverNik || currentAdminNik) ? `NIK: ${selectedPengajuan.approverNik || currentAdminNik}` : "HRD & Personalia"}
+                    </p>
+                    <p className="text-gray-500 text-[10px]">HR Manager / Direktur</p>
                   </div>
                 </div>
               </div>
 
-              {/* FOOTER */}
-              <div className="hidden print:block mt-14 pt-4 border-t border-gray-200 text-center text-[10px] text-gray-400 italic">
-                Dokumen ini merupakan formulir pengajuan resmi yang dicetak melalui Sistem Absensi PT. Pilar Sentra Solusi.
+              {/* FOOTER BAR DOKUMEN */}
+              <div 
+                className="mt-14 px-4 py-2.5 bg-[#114289] text-white flex flex-wrap sm:flex-nowrap items-center justify-between text-[10px] md:text-[11px] gap-3"
+                style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}
+              >
+                <div className="flex items-center gap-2">
+                  <i className="fa-solid fa-location-dot text-xs shrink-0"></i>
+                  <span>Jalan Hamadun gailea, Fagudu, Kepulauan Sula, Maluku Utara</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <i className="fa-solid fa-envelope text-xs shrink-0"></i>
+                  <span>pilarsentrasolusi@gmail.com</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <i className="fa-solid fa-phone text-xs shrink-0"></i>
+                  <span>0822-1037-1774</span>
+                </div>
               </div>
             </div>
 
@@ -3542,24 +4749,18 @@ export default function AdminDesktopPage() {
               </div>
             </div>
             {/* KOP SURAT PERUSAHAAN */}
-            <div className="hidden print:flex items-center justify-between border-b-2 border-pilar-darker pb-4 mb-6">
-              <div className="flex items-center space-x-4">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img 
-                  src="https://res.cloudinary.com/sgcxykbd/image/upload/v1788834500/logo_horizontal_2.png" 
-                  alt="Logo PT. Pilar Sentra Solusi" 
-                  className="h-14 object-contain" 
-                />
-              </div>
-              <div className="text-right">
-                <h1 className="text-xl font-black tracking-tight text-pilar-darker uppercase">PT. PILAR SENTRA SOLUSI</h1>
-                <p className="text-xs text-gray-600 font-semibold">General Contractor & IT Solutions</p>
-                <p className="text-[11px] text-gray-500">Grand Slipi Tower Lt. 9, Jakarta Barat 11480 | info@pilarsentrasolusi.com</p>
-              </div>
+            <div className="border-b-2 border-pilar-darker pb-4 mb-6">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img 
+                src="https://res.cloudinary.com/sgcxykbd/image/upload/v1789396132/Surat_Peringatan_2_Jufrianto_1_-1.png" 
+                alt="Logo PT. Pilar Sentra Solusi" 
+                className="h-[73px] object-contain" 
+                onError={(e) => { e.currentTarget.src = '/logo-pilar.png'; }}
+              />
             </div>
 
             {/* JUDUL SLIP GAJI */}
-            <div className="hidden print:block text-center my-6">
+            <div className="text-center my-6">
               <h2 className="text-lg font-black uppercase tracking-wider text-pilar-darker border-b-2 border-pilar-gold inline-block pb-1">
                 SLIP GAJI KARYAWAN (CONFIDENTIAL PAYSLIP)
               </h2>
@@ -3573,6 +4774,16 @@ export default function AdminDesktopPage() {
                   <span className="text-gray-600 font-medium">Nama Karyawan</span>
                   <span className="text-gray-400">:</span>
                   <span className="font-bold text-gray-900 uppercase">{selectedAdminSlip.nama}</span>
+                </div>
+                <div className="grid grid-cols-[120px_auto_1fr] gap-2">
+                  <span className="text-gray-600 font-medium">NIK Karyawan</span>
+                  <span className="text-gray-400">:</span>
+                  <span className="font-mono font-bold text-gray-800">{getAdminSlipPenerima(selectedAdminSlip).nik}</span>
+                </div>
+                <div className="grid grid-cols-[120px_auto_1fr] gap-2">
+                  <span className="text-gray-600 font-medium">Jabatan / Posisi</span>
+                  <span className="text-gray-400">:</span>
+                  <span className="font-bold text-gray-800">{getAdminSlipPenerima(selectedAdminSlip).jabatan}</span>
                 </div>
                 <div className="grid grid-cols-[120px_auto_1fr] gap-2">
                   <span className="text-gray-600 font-medium">Nomor Slip</span>
@@ -3598,7 +4809,7 @@ export default function AdminDesktopPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
               {/* Kolom Kiri: Penghasilan */}
               <div className="border border-gray-300 rounded-xl overflow-hidden">
-                <div className="bg-pilar-darker text-pilar-gold font-bold px-4 py-2.5 text-xs uppercase tracking-wider flex justify-between items-center">
+                <div className="bg-[#114289] text-white font-bold px-4 py-2.5 text-xs uppercase tracking-wider flex justify-between items-center" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                   <span>A. Penghasilan (Earnings)</span>
                   <i className="fa-solid fa-circle-plus text-xs"></i>
                 </div>
@@ -3624,19 +4835,62 @@ export default function AdminDesktopPage() {
 
               {/* Kolom Kanan: Potongan */}
               <div className="border border-gray-300 rounded-xl overflow-hidden">
-                <div className="bg-pilar-darker text-pilar-gold font-bold px-4 py-2.5 text-xs uppercase tracking-wider flex justify-between items-center">
+                <div className="bg-[#114289] text-white font-bold px-4 py-2.5 text-xs uppercase tracking-wider flex justify-between items-center" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                   <span>B. Potongan (Deductions)</span>
                   <i className="fa-solid fa-circle-minus text-xs"></i>
                 </div>
                 <div className="p-4 space-y-2 text-xs">
+                  {/* Denda Keterlambatan Masuk (TLM) */}
+                  {(selectedAdminSlip.tlm || 0) > 0 && (
+                    <div className="flex justify-between items-center py-1 border-b border-gray-100">
+                      <span className="text-gray-700">Terlambat Masuk (TLM: {selectedAdminSlip.tlm}x)</span>
+                      <span className="font-bold text-red-600">
+                        - Rp {new Intl.NumberFormat('id-ID').format(selectedAdminSlip.dendaTlm || (selectedAdminSlip.tlm * 16000))}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Denda Tidak Absen Masuk (TAM) */}
+                  {(selectedAdminSlip.tam || 0) > 0 && (
+                    <div className="flex justify-between items-center py-1 border-b border-gray-100">
+                      <span className="text-gray-700">Tidak Absen Masuk (TAM: {selectedAdminSlip.tam}x)</span>
+                      <span className="font-bold text-red-600">
+                        - Rp {new Intl.NumberFormat('id-ID').format(selectedAdminSlip.dendaTam || (selectedAdminSlip.tam * 25000))}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Denda Tidak Absen Pulang (TAP) */}
+                  {(selectedAdminSlip.tap || 0) > 0 && (
+                    <div className="flex justify-between items-center py-1 border-b border-gray-100">
+                      <span className="text-gray-700">Tidak Absen Pulang (TAP: {selectedAdminSlip.tap}x)</span>
+                      <span className="font-bold text-red-600">
+                        - Rp {new Intl.NumberFormat('id-ID').format(selectedAdminSlip.dendaTap || (selectedAdminSlip.tap * 25000))}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Potongan Alpha (A) */}
                   <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                    <span className="text-gray-700">Potongan Alpa ({selectedAdminSlip.alpa || 0} Hari)</span>
+                    <span className="text-gray-700">Alpha / Tanpa Ket. (A: {selectedAdminSlip.alpa || 0} Hari)</span>
                     <span className={(selectedAdminSlip.potonganAlpa || 0) > 0 ? "font-bold text-red-600" : "text-gray-500"}>
                       {(selectedAdminSlip.potonganAlpa || 0) > 0 
                         ? `- Rp ${new Intl.NumberFormat('id-ID').format(selectedAdminSlip.potonganAlpa!)}` 
                         : "Rp 0"}
                     </span>
                   </div>
+
+                  {/* Potongan Izin Pribadi (I) */}
+                  {(selectedAdminSlip.izin || 0) > 0 && (
+                    <div className="flex justify-between items-center py-1 border-b border-gray-100">
+                      <span className="text-gray-700">Izin Pribadi (I: {selectedAdminSlip.izin} Hari)</span>
+                      <span className="font-bold text-red-600">
+                        - Rp {new Intl.NumberFormat('id-ID').format(selectedAdminSlip.potonganIzin || (selectedAdminSlip.izin * 144818))}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* BPJS Ketenagakerjaan */}
                   <div className="flex justify-between items-center py-1 border-b border-gray-100">
                     <span className="text-gray-700">BPJS Ketenagakerjaan ({selectedAdminSlip.bpjsTkRate ?? 2}%)</span>
                     <span className={(selectedAdminSlip.potonganBpjsTk || 0) > 0 ? "font-bold text-red-600" : "text-gray-500"}>
@@ -3645,6 +4899,8 @@ export default function AdminDesktopPage() {
                         : "Rp 0"}
                     </span>
                   </div>
+
+                  {/* BPJS Kesehatan */}
                   <div className="flex justify-between items-center py-1 border-b border-gray-100">
                     <span className="text-gray-700">BPJS Kesehatan ({selectedAdminSlip.bpjsKesRate ?? 1}%)</span>
                     <span className={(selectedAdminSlip.potonganBpjsKes || 0) > 0 ? "font-bold text-red-600" : "text-gray-500"}>
@@ -3653,6 +4909,8 @@ export default function AdminDesktopPage() {
                         : "Rp 0"}
                     </span>
                   </div>
+
+                  {/* Total Potongan */}
                   <div className="flex justify-between items-center pt-3 border-t border-gray-300 font-extrabold text-red-600 text-sm">
                     <span className="text-gray-800">Total Potongan (B)</span>
                     <span>
@@ -3684,25 +4942,50 @@ export default function AdminDesktopPage() {
             </div>
 
             {/* TANDA TANGAN */}
-            <div className="hidden print:grid grid-cols-2 gap-4 sm:gap-12 mt-12 text-center text-xs">
+            <div className="grid grid-cols-2 gap-4 sm:gap-12 mt-12 text-center text-xs">
               <div>
+                <p className="text-gray-500 mb-1 invisible select-none text-xs">&nbsp;</p>
                 <p className="text-gray-600 mb-20 font-medium">Penerima (Karyawan),</p>
                 <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 inline-block min-w-[120px] sm:min-w-[200px] uppercase">
                   {selectedAdminSlip.nama}
+                </p>
+                <p className="text-gray-700 font-mono text-[11px] mt-1 font-semibold">
+                  {getAdminSlipPenerima(selectedAdminSlip).nik ? `NIK: ${getAdminSlipPenerima(selectedAdminSlip).nik}` : "NIK: -"}
+                </p>
+                <p className="text-gray-400 text-[10px]">
+                  {getAdminSlipPenerima(selectedAdminSlip).jabatan}
                 </p>
               </div>
               <div>
                 <p className="text-gray-500 mb-1">Jakarta, {selectedAdminSlip.tanggal}</p>
                 <p className="text-gray-600 mb-20 font-medium">Disahkan oleh (HRD & Finance),</p>
-                <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 inline-block min-w-[120px] sm:min-w-[200px]">
-                  PT. PILAR SENTRA SOLUSI
+                <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 inline-block min-w-[120px] sm:min-w-[200px] uppercase">
+                  {selectedAdminSlip.hrdNama || currentAdminName || "PT. PILAR SENTRA SOLUSI"}
                 </p>
+                <p className="text-gray-700 font-mono text-[11px] mt-1 font-semibold">
+                  {(selectedAdminSlip.hrdNik || currentAdminNik) ? `NIK: ${selectedAdminSlip.hrdNik || currentAdminNik}` : "HRD & Finance Manager"}
+                </p>
+                <p className="text-gray-400 text-[10px]">HRD & Finance</p>
               </div>
             </div>
 
-            {/* FOOTER */}
-            <div className="hidden print:block mt-14 pt-4 border-t border-gray-200 text-center text-[10px] text-gray-400 italic">
-              Dokumen ini diterbitkan secara resmi melalui Sistem Payroll Elektronik PT. Pilar Sentra Solusi dan merupakan bukti penerimaan gaji yang sah.
+            {/* FOOTER BAR DOKUMEN */}
+            <div 
+              className="mt-14 px-4 py-2.5 bg-[#114289] text-white flex flex-wrap sm:flex-nowrap items-center justify-between text-[10px] md:text-[11px] gap-3"
+              style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}
+            >
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-location-dot text-xs shrink-0"></i>
+                <span>Jalan Hamadun gailea, Fagudu, Kepulauan Sula, Maluku Utara</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-envelope text-xs shrink-0"></i>
+                <span>pilarsentrasolusi@gmail.com</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-phone text-xs shrink-0"></i>
+                <span>0822-1037-1774</span>
+              </div>
             </div>
           </div>
         </div>
@@ -3800,6 +5083,791 @@ export default function AdminDesktopPage() {
         </div>
       )}
 
+      {/* MODAL TAMBAH ADMIN (Khusus Super Admin) */}
+      {isAddAdminModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100 animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="px-8 py-6 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center relative overflow-hidden">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-pilar-darker text-pilar-gold flex items-center justify-center text-base shadow-xs">
+                  <i className="fa-solid fa-user-plus"></i>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-gray-900 text-lg">Tambah Admin Baru</h3>
+                  <p className="text-xs text-gray-500">Buat akun pengelola dengan hak akses terproteksi.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddAdminModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-white text-gray-400 hover:text-gray-700 hover:bg-gray-100 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleCreateAdmin} className="p-8 space-y-4" autoComplete="off">
+              {adminActionError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center gap-2">
+                  <i className="fa-solid fa-circle-exclamation shrink-0"></i>
+                  <span>{adminActionError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                  Nama Asli & Gelar <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoComplete="off"
+                  value={adminFormNama}
+                  onChange={(e) => setAdminFormNama(e.target.value)}
+                  placeholder="Contoh: Budi Santoso, S.Psi"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker text-sm bg-gray-50/50 focus:bg-white transition-all"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">Nama ini dicetak di Formulir Cuti/Izin, Slip Gaji, dan dokumen resmi.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                  NIK (Nomor Induk Karyawan / HRD) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoComplete="off"
+                  value={adminFormNik}
+                  onChange={(e) => setAdminFormNik(e.target.value)}
+                  placeholder="Contoh: HRD-001 atau 3201012345670001"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker text-sm bg-gray-50/50 focus:bg-white transition-all font-mono"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">Wajib diisi sebagai nomor identitas pengesahan dokumen.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">Email Akses Resmi</label>
+                <input
+                  type="email"
+                  required
+                  autoComplete="new-password"
+                  name="new_admin_email"
+                  value={adminFormEmail}
+                  onChange={(e) => setAdminFormEmail(e.target.value)}
+                  placeholder="admin.hrd@pt-pilar.co.id"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker text-sm bg-gray-50/50 focus:bg-white transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">Kata Sandi (Password Awal)</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  name="new_admin_password"
+                  value={adminFormPassword}
+                  onChange={(e) => setAdminFormPassword(e.target.value)}
+                  placeholder="Minimal 6 karakter"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker text-sm bg-gray-50/50 focus:bg-white transition-all"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">Admin dapat mengganti password ini sewaktu-waktu.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-2">Tingkat Hak Akses (Role)</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div
+                    onClick={() => setAdminFormRole("admin")}
+                    className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
+                      adminFormRole === "admin"
+                        ? "border-pilar-darker bg-gray-50 shadow-xs ring-1 ring-pilar-darker"
+                        : "border-gray-200 hover:border-gray-300 bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-extrabold text-xs text-gray-900 flex items-center gap-1.5">
+                        <i className="fa-solid fa-user-tie text-pilar-darker"></i> Admin HRD
+                      </span>
+                      {adminFormRole === "admin" && <i className="fa-solid fa-circle-check text-pilar-darker text-xs"></i>}
+                    </div>
+                    <p className="text-[11px] text-gray-500">Kelola karyawan, absensi, cuti & slip gaji operasional.</p>
+                  </div>
+
+                  <div
+                    onClick={() => setAdminFormRole("superadmin")}
+                    className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
+                      adminFormRole === "superadmin"
+                        ? "border-pilar-gold bg-pilar-gold/10 shadow-xs ring-1 ring-pilar-gold"
+                        : "border-gray-200 hover:border-gray-300 bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-extrabold text-xs text-gray-900 flex items-center gap-1.5">
+                        <i className="fa-solid fa-crown text-pilar-gold"></i> Super Admin
+                      </span>
+                      {adminFormRole === "superadmin" && <i className="fa-solid fa-circle-check text-pilar-gold text-xs"></i>}
+                    </div>
+                    <p className="text-[11px] text-gray-500">Akses master penuh: kelola admin, audit trail & sistem.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  disabled={adminActionLoading}
+                  onClick={() => setIsAddAdminModalOpen(false)}
+                  className="px-5 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-xs font-bold hover:bg-gray-50 transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={adminActionLoading}
+                  className="px-6 py-2.5 rounded-xl bg-pilar-darker hover:bg-black text-pilar-gold text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {adminActionLoading ? (
+                    <>
+                      <i className="fa-solid fa-spinner fa-spin text-xs"></i>
+                      <span>Membuat Akun...</span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-check text-xs"></i>
+                      <span>Simpan & Buat Akun</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDIT ADMIN (Khusus Super Admin) */}
+      {isEditAdminModalOpen && selectedAdminForEdit && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100 animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="px-8 py-6 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-pilar-darker text-pilar-gold flex items-center justify-center text-base shadow-xs">
+                  <i className="fa-solid fa-pen-to-square"></i>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-gray-900 text-lg">Edit Akun Administrator</h3>
+                  <p className="text-xs text-gray-500 font-mono">{selectedAdminForEdit.email}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditAdminModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-white text-gray-400 hover:text-gray-700 hover:bg-gray-100 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleUpdateAdmin} className="p-8 space-y-4" autoComplete="off">
+              {adminActionError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center gap-2">
+                  <i className="fa-solid fa-circle-exclamation shrink-0"></i>
+                  <span>{adminActionError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                  Nama Asli & Gelar <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoComplete="off"
+                  value={adminFormNama}
+                  onChange={(e) => setAdminFormNama(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker text-sm bg-gray-50/50 focus:bg-white transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                  NIK (Nomor Induk Karyawan / HRD) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoComplete="off"
+                  value={adminFormNik}
+                  onChange={(e) => setAdminFormNik(e.target.value)}
+                  placeholder="Contoh: HRD-001"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker text-sm bg-gray-50/50 focus:bg-white transition-all font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">Reset Kata Sandi (Opsional)</label>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  name="edit_admin_password"
+                  value={adminFormPassword}
+                  onChange={(e) => setAdminFormPassword(e.target.value)}
+                  placeholder="Kosongkan jika tidak ingin mengubah password"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker text-sm bg-gray-50/50 focus:bg-white transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-2">Tingkat Hak Akses (Role)</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div
+                    onClick={() => setAdminFormRole("admin")}
+                    className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
+                      adminFormRole === "admin"
+                        ? "border-pilar-darker bg-gray-50 shadow-xs ring-1 ring-pilar-darker"
+                        : "border-gray-200 hover:border-gray-300 bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-extrabold text-xs text-gray-900 flex items-center gap-1.5">
+                        <i className="fa-solid fa-user-tie text-pilar-darker"></i> Admin HRD
+                      </span>
+                      {adminFormRole === "admin" && <i className="fa-solid fa-circle-check text-pilar-darker text-xs"></i>}
+                    </div>
+                    <p className="text-[11px] text-gray-500">Operasional HR, absensi & cuti.</p>
+                  </div>
+
+                  <div
+                    onClick={() => setAdminFormRole("superadmin")}
+                    className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
+                      adminFormRole === "superadmin"
+                        ? "border-pilar-gold bg-pilar-gold/10 shadow-xs ring-1 ring-pilar-gold"
+                        : "border-gray-200 hover:border-gray-300 bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-extrabold text-xs text-gray-900 flex items-center gap-1.5">
+                        <i className="fa-solid fa-crown text-pilar-gold"></i> Super Admin
+                      </span>
+                      {adminFormRole === "superadmin" && <i className="fa-solid fa-circle-check text-pilar-gold text-xs"></i>}
+                    </div>
+                    <p className="text-[11px] text-gray-500">Akses master penuh.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  disabled={adminActionLoading}
+                  onClick={() => setIsEditAdminModalOpen(false)}
+                  className="px-5 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-xs font-bold hover:bg-gray-50 transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={adminActionLoading}
+                  className="px-6 py-2.5 rounded-xl bg-pilar-darker hover:bg-black text-pilar-gold text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {adminActionLoading ? (
+                    <>
+                      <i className="fa-solid fa-spinner fa-spin text-xs"></i>
+                      <span>Menyimpan...</span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-check text-xs"></i>
+                      <span>Simpan Perubahan</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL HAPUS ADMIN (Khusus Super Admin - Standardized) */}
+      {isDeleteAdminModalOpen && selectedAdminForDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden border border-gray-100 animate-in zoom-in-95 duration-200 p-8 text-center relative">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+
+            <div className="w-16 h-16 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-4 text-2xl shadow-inner border border-red-100 relative z-10">
+              <i className="fa-solid fa-trash-can"></i>
+            </div>
+            <h3 className="font-extrabold text-gray-900 text-xl tracking-tight mb-2 relative z-10">Cabut Hak Akses Admin?</h3>
+            <p className="text-gray-500 text-sm leading-relaxed mb-6 relative z-10">
+              Apakah Anda yakin ingin mencabut hak akses dan menghapus akun <strong className="text-gray-900 font-bold">{selectedAdminForDelete.nama}</strong> ({selectedAdminForDelete.email})?
+            </p>
+
+            {adminActionError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center gap-2 text-left relative z-10">
+                <i className="fa-solid fa-circle-exclamation shrink-0"></i>
+                <span>{adminActionError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-center gap-3 relative z-10">
+              <button
+                type="button"
+                disabled={adminActionLoading}
+                onClick={() => setIsDeleteAdminModalOpen(false)}
+                className="flex-1 py-3 px-4 rounded-xl border border-gray-200 text-gray-700 text-sm font-bold hover:bg-gray-50 transition-all cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={adminActionLoading}
+                onClick={handleDeleteAdmin}
+                className="flex-1 py-3 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold shadow-md hover:shadow-lg focus:ring-4 focus:ring-red-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {adminActionLoading ? (
+                  <>
+                    <i className="fa-solid fa-spinner fa-spin text-sm"></i>
+                    <span>Menghapus...</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-trash-can text-sm"></i>
+                    <span>Ya, Hapus Akun</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: TERBITKAN SURAT PERINGATAN (SP) BARU */}
+      {isAddSpModalOpen && (
+        <div className="fixed inset-0 z-[200] bg-gray-900/80 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl relative my-auto animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-pilar-darker text-pilar-gold flex items-center justify-center text-lg">
+                  <i className="fa-solid fa-triangle-exclamation"></i>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-gray-900">Terbitkan Surat Peringatan</h3>
+                  <p className="text-xs text-gray-400">Peringatan kedisiplinan dan sanksi resmi karyawan</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddSpModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSp} className="mt-5 space-y-4 text-xs">
+              {/* Pilih Karyawan */}
+              <div>
+                <label className="block font-bold text-gray-700 mb-1.5">
+                  Karyawan Yang Dikenakan Sanksi <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={spFormKaryawanId}
+                  onChange={(e) => setSpFormKaryawanId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-800 focus:outline-none focus:border-pilar-darker focus:bg-white"
+                  required
+                >
+                  <option value="">-- Pilih Karyawan --</option>
+                  {karyawanList.map(k => (
+                    <option key={k.id} value={k.id}>
+                      {k.nama} ({k.posisi || "Staf"} • NIK: {k.noInduk || "-"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Tingkat SP & Nomor Surat */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1.5">
+                    Tingkat Sanksi / SP <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={spFormTingkat}
+                    onChange={(e) => {
+                      const val = e.target.value as "Surat Teguran" | "SP 1" | "SP 2" | "SP 3";
+                      setSpFormTingkat(val);
+                      setSpFormNomor(generateSpNumber(val));
+                    }}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-800 focus:outline-none focus:border-pilar-darker focus:bg-white"
+                  >
+                    <option value="Surat Teguran">Surat Teguran (Awal)</option>
+                    <option value="SP 1">Surat Peringatan 1 (SP 1)</option>
+                    <option value="SP 2">Surat Peringatan 2 (SP 2)</option>
+                    <option value="SP 3">Surat Peringatan 3 (SP 3 - Terakhir)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1.5">
+                    Nomor Dokumen <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={spFormNomor}
+                    onChange={(e) => setSpFormNomor(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono font-bold text-gray-800 focus:outline-none focus:border-pilar-darker focus:bg-white"
+                    placeholder="001/SP-1/HRD-PSS/IX/2026"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Tanggal & Masa Berlaku */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1.5">
+                    Tanggal Diterbitkan <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={spFormTanggal}
+                    onChange={(e) => setSpFormTanggal(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-800 focus:outline-none focus:border-pilar-darker focus:bg-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1.5">
+                    Masa Berlaku Sanksi
+                  </label>
+                  <select
+                    value={spFormMasaBulan}
+                    onChange={(e) => setSpFormMasaBulan(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-800 focus:outline-none focus:border-pilar-darker focus:bg-white"
+                  >
+                    <option value={1}>1 Bulan</option>
+                    <option value={3}>3 Bulan</option>
+                    <option value={6}>6 Bulan (Standar UU Ketenagakerjaan)</option>
+                    <option value={12}>12 Bulan (1 Tahun)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Alasan Pelanggaran */}
+              <div>
+                <label className="block font-bold text-gray-700 mb-1.5">
+                  Alasan / Butir Pelanggaran <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={spFormAlasan}
+                  onChange={(e) => setSpFormAlasan(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium text-gray-800 focus:outline-none focus:border-pilar-darker focus:bg-white"
+                  placeholder="Contoh: Ketidakhadiran tanpa izin selama 3 hari berturut-turut"
+                  required
+                />
+              </div>
+
+              {/* Detail Kronologis */}
+              <div>
+                <label className="block font-bold text-gray-700 mb-1.5">
+                  Kronologi & Keterangan Tambahan
+                </label>
+                <textarea
+                  value={spFormDetail}
+                  onChange={(e) => setSpFormDetail(e.target.value)}
+                  rows={3}
+                  className="w-full px-3.5 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium text-gray-800 focus:outline-none focus:border-pilar-darker focus:bg-white"
+                  placeholder="Jelaskan rincian tanggal kejadian, dampak terhadap operasional perusahaan..."
+                />
+              </div>
+
+              {/* Tindakan Perbaikan */}
+              <div>
+                <label className="block font-bold text-gray-700 mb-1.5">
+                  Tindakan Perbaikan & Konsekuensi Lanjutan
+                </label>
+                <textarea
+                  value={spFormTindakan}
+                  onChange={(e) => setSpFormTindakan(e.target.value)}
+                  rows={2}
+                  className="w-full px-3.5 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium text-gray-800 focus:outline-none focus:border-pilar-darker focus:bg-white"
+                  placeholder="Contoh: Karyawan wajib memperbaiki kehadiran. Pengulangan pelanggaran akan berakibat sanksi tingkat berikutnya."
+                />
+              </div>
+
+              {/* Info Pemberitahuan & Penerbit */}
+              <div className="p-3.5 bg-pilar-darker/5 border border-pilar-gold/30 rounded-xl space-y-2 text-xs">
+                <div className="flex items-start gap-2.5 text-gray-700">
+                  <i className="fa-solid fa-circle-info text-pilar-gold mt-0.5 shrink-0 text-sm"></i>
+                  <p className="text-[11px] leading-relaxed">
+                    Sistem ini mengirimkan <span className="font-bold text-pilar-darker">pemberitahuan digital resmi</span> ke akun aplikasi karyawan. Dokumen fisik SP dicetak secara manual oleh HRD/Manajemen untuk diserahkan langsung.
+                  </p>
+                </div>
+                <div className="pt-2 border-t border-gray-200/60 flex items-center justify-between text-[11px] text-gray-700">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-gray-500">Penerbit:</span>
+                    <strong className="text-pilar-darker">{currentAdminName || "PT. PILAR SENTRA SOLUSI"}</strong>
+                  </div>
+                  <span className="font-mono text-[10px] text-gray-500">{currentAdminNik ? `NIK: ${currentAdminNik}` : "HRD & Personalia"}</span>
+                </div>
+              </div>
+
+              {/* Buttons */}
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  disabled={isSavingSp}
+                  onClick={() => setIsAddSpModalOpen(false)}
+                  className="px-5 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-bold hover:bg-gray-50 transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingSp}
+                  className="px-6 py-2.5 rounded-xl bg-pilar-darker text-pilar-gold font-bold shadow-md hover:bg-black transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingSp ? (
+                    <>
+                      <i className="fa-solid fa-spinner fa-spin text-xs"></i>
+                      <span>Mengirim...</span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-paper-plane text-xs"></i>
+                      <span>Kirim Pemberitahuan SP</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: DETAIL PEMBERITAHUAN SP */}
+      {selectedSpDetail && (
+        <div className="fixed inset-0 z-[200] bg-gray-900/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] my-auto animate-in fade-in zoom-in-95 border border-gray-100">
+            {/* Modal Header (Navy, Gold, Gray) */}
+            <div className="px-6 py-5 bg-pilar-darker text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center text-pilar-gold text-base">
+                  <i className="fa-solid fa-file-shield"></i>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-black text-base text-white">Detail Pemberitahuan SP</h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-pilar-gold text-pilar-darker">
+                      {selectedSpDetail.tingkatSp}
+                    </span>
+                  </div>
+                  <p className="font-mono text-xs text-gray-300 mt-0.5">{selectedSpDetail.nomorSurat}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedSpDetail(null)}
+                className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                title="Tutup Modal"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="overflow-y-auto p-6 space-y-5 flex-1 bg-white text-gray-800">
+              {/* Informational Banner: Manual Print Notice */}
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-pilar-darker text-pilar-gold flex items-center justify-center shrink-0 text-xs">
+                  <i className="fa-solid fa-circle-info"></i>
+                </div>
+                <div className="text-xs text-gray-600 leading-relaxed">
+                  <p className="font-bold text-pilar-darker mb-0.5">Pemberitahuan Digital Karyawan</p>
+                  <p>
+                    Data ini berfungsi sebagai pemberitahuan resmi yang tampil di akun aplikasi karyawan. Dokumen fisik Surat Peringatan dicetak secara manual oleh HRD/Manajemen di luar aplikasi dan diserahkan langsung.
+                  </p>
+                </div>
+              </div>
+
+              {/* Data Karyawan */}
+              <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 space-y-3">
+                <span className="text-[11px] font-black uppercase tracking-wider text-pilar-darker block">
+                  Identitas Karyawan
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="bg-white p-3 rounded-xl border border-gray-200">
+                    <span className="text-[10px] text-gray-500 font-medium block">Nama Karyawan</span>
+                    <span className="font-black text-gray-900 text-sm">{selectedSpDetail.karyawanNama}</span>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-gray-200">
+                    <span className="text-[10px] text-gray-500 font-medium block">No. Induk (NIK)</span>
+                    <span className="font-mono font-bold text-gray-900 text-sm">{selectedSpDetail.karyawanNik || "-"}</span>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-gray-200">
+                    <span className="text-[10px] text-gray-500 font-medium block">Jabatan / Posisi</span>
+                    <span className="font-bold text-gray-900">{selectedSpDetail.karyawanPosisi || "-"}</span>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-gray-200">
+                    <span className="text-[10px] text-gray-500 font-medium block">Status Sanksi</span>
+                    <span className={`inline-block px-2.5 py-0.5 mt-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${
+                      selectedSpDetail.status === "Aktif" 
+                        ? "bg-pilar-gold/20 text-pilar-darker border-pilar-gold/40" 
+                        : "bg-gray-100 text-gray-600 border-gray-200"
+                    }`}>
+                      {selectedSpDetail.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Rincian Pelanggaran */}
+              <div className="space-y-3">
+                <span className="text-[11px] font-black uppercase tracking-wider text-pilar-darker block">
+                  Rincian Pelanggaran Disiplin
+                </span>
+                <div className="space-y-2.5">
+                  <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-200">
+                    <span className="text-[10px] text-gray-500 font-bold block mb-1 uppercase tracking-wide">Butir Pelanggaran:</span>
+                    <p className="text-xs font-bold text-gray-900 leading-relaxed">
+                      {selectedSpDetail.alasanPelanggaran}
+                    </p>
+                  </div>
+                  {selectedSpDetail.detailPelanggaran && (
+                    <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-200">
+                      <span className="text-[10px] text-gray-500 font-bold block mb-1 uppercase tracking-wide">Kronologi & Uraian Fakta:</span>
+                      <p className="text-xs text-gray-700 whitespace-pre-line leading-relaxed">
+                        {selectedSpDetail.detailPelanggaran}
+                      </p>
+                    </div>
+                  )}
+                  {selectedSpDetail.tindakanPerbaikan && (
+                    <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-200">
+                      <span className="text-[10px] text-gray-500 font-bold block mb-1 uppercase tracking-wide">Tindakan Perbaikan / Konsekuensi:</span>
+                      <p className="text-xs text-gray-700 leading-relaxed">
+                        {selectedSpDetail.tindakanPerbaikan}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Masa Berlaku & Konfirmasi */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-200 space-y-1.5">
+                  <span className="text-[10px] text-gray-500 font-bold block uppercase tracking-wide">Periode Masa Berlaku</span>
+                  <div className="text-gray-700 text-xs space-y-0.5">
+                    <div>Mulai: <span className="font-bold text-gray-900">{new Date(selectedSpDetail.berlakuMulai).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
+                    <div>Sampai: <span className="font-bold text-pilar-darker">{new Date(selectedSpDetail.berlakuSampai).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-200 space-y-1.5">
+                  <span className="text-[10px] text-gray-500 font-bold block uppercase tracking-wide">Konfirmasi Karyawan</span>
+                  {selectedSpDetail.isAcknowledged ? (
+                    <div className="flex items-center gap-2 text-pilar-darker font-bold">
+                      <i className="fa-solid fa-circle-check text-pilar-gold text-sm"></i>
+                      <span>Telah Dibaca ({selectedSpDetail.acknowledgedAt ? new Date(selectedSpDetail.acknowledgedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : "-"})</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-gray-500 font-medium">
+                      <i className="fa-solid fa-clock text-gray-400 text-sm"></i>
+                      <span>Menunggu konfirmasi karyawan</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Penerbit */}
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex items-center justify-between text-[11px] text-gray-600">
+                <div>
+                  <span className="text-gray-400 block text-[10px]">Diterbitkan Oleh:</span>
+                  <span className="font-bold text-gray-800">{selectedSpDetail.hrdNama || "PT. PILAR SENTRA SOLUSI"}</span>
+                  <span className="text-gray-500 ml-1">({selectedSpDetail.hrdJabatan || "HRD"})</span>
+                </div>
+                <span className="font-mono text-gray-400 text-[10px]">
+                  Terbit: {new Date(selectedSpDetail.tanggalTerbit).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+              <div>
+                {selectedSpDetail.status === "Aktif" && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await handleUpdateSpStatus(selectedSpDetail.id!, "Selesai");
+                      setSelectedSpDetail(null);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-gray-200 hover:bg-pilar-darker text-gray-700 hover:text-pilar-gold font-bold text-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <i className="fa-solid fa-check text-xs"></i>
+                    <span>Tandai Sanksi Selesai</span>
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedSpDetail(null)}
+                className="px-5 py-2 rounded-xl bg-pilar-darker text-pilar-gold hover:bg-black font-bold text-xs shadow-md transition-all cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: KONFIRMASI HAPUS SP (Standardized) */}
+      {isDeleteSpModalOpen && spToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden border border-gray-100 animate-in zoom-in-95 duration-200 p-8 text-center relative">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+
+            <div className="w-16 h-16 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-4 text-2xl shadow-inner border border-red-100 relative z-10">
+              <i className="fa-solid fa-trash-can"></i>
+            </div>
+            <h3 className="font-extrabold text-gray-900 text-xl tracking-tight mb-2 relative z-10">Hapus Surat Peringatan?</h3>
+            <p className="text-gray-500 text-sm leading-relaxed mb-6 relative z-10">
+              Apakah Anda yakin ingin menghapus arsip Surat Peringatan <strong className="text-gray-900 font-bold">{spToDelete.nomorSurat}</strong> ({spToDelete.karyawanNama})?
+            </p>
+
+            <div className="flex items-center justify-center gap-3 relative z-10">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDeleteSpModalOpen(false);
+                  setSpToDelete(null);
+                }}
+                className="flex-1 py-3 px-4 rounded-xl border border-gray-200 text-gray-700 text-sm font-bold hover:bg-gray-50 transition-all cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSp}
+                className="flex-1 py-3 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold shadow-md hover:shadow-lg focus:ring-4 focus:ring-red-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <i className="fa-solid fa-trash-can text-sm"></i>
+                <span>Ya, Hapus SP</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+

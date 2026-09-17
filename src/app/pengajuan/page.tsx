@@ -8,7 +8,7 @@ import { submitRequest, updateRequest, fetchRequestById, subscribeToRequests, ad
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
-type PengajuanType = "Cuti Tahunan" | "Cuti Sakit" | "Cuti Haid" | "Cuti Melahirkan" | "Cuti Khusus" | "Izin Pribadi" | "Cuti Lembur" | "Cuti Tanpa Bayar";
+type PengajuanType = "Cuti Tahunan" | "Cuti Sakit" | "Cuti Haid" | "Cuti Melahirkan" | "Cuti Khusus" | "Izin Pribadi" | "Cuti Lembur";
 
 export default function PengajuanPage() {
   const [type, setType] = useState<PengajuanType>("Cuti Tahunan");
@@ -111,6 +111,7 @@ export default function PengajuanPage() {
           setDelegationName(item.delegationName);
           setDelegationId(item.delegationId);
           setDelegationRole(item.delegationRole);
+          setDelegationNik(item.delegationNik || "");
         }
       });
     }
@@ -226,6 +227,7 @@ export default function PengajuanPage() {
           delegationName,
           delegationId,
           delegationRole,
+          delegationNik,
           files: finalFiles,
           status: "Menunggu",
           isRevision: true
@@ -247,6 +249,7 @@ export default function PengajuanPage() {
           karyawanNama: currentUser ? currentUser.nama : "Karyawan",
           karyawanDivisi: currentUser ? (currentUser.divisi || "-") : "-",
           karyawanPosisi: currentUser ? (currentUser.posisi || "-") : "-",
+          karyawanNik: currentUser ? (currentUser.noInduk || "-") : "-",
           type,
           startDate,
           endDate,
@@ -256,6 +259,7 @@ export default function PengajuanPage() {
           delegationName,
           delegationId,
           delegationRole,
+          delegationNik,
           files: uploadedFilesData,
           status: "Menunggu", // Menunggu, Disetujui, Revisi, Ditolak
           alasanPenolakan: "",
@@ -381,7 +385,6 @@ export default function PengajuanPage() {
               >
                 <option value="Cuti Tahunan" className="bg-[#00142f] text-white">Cuti Tahunan</option>
                 <option value="Cuti Lembur" className="bg-[#00142f] text-white">Cuti Lembur (Kompensasi)</option>
-                <option value="Cuti Tanpa Bayar" className="bg-[#00142f] text-white">Cuti Tanpa Bayar (Unpaid Leave)</option>
                 <option value="Cuti Sakit" className="bg-[#00142f] text-white">Cuti Sakit</option>
                 <option value="Cuti Haid" className="bg-[#00142f] text-white">Cuti Haid</option>
                 <option value="Cuti Melahirkan" className="bg-[#00142f] text-white">Cuti Melahirkan / Keguguran</option>
@@ -677,6 +680,7 @@ export default function PengajuanPage() {
                           setDelegationName(item.delegationName || "");
                           setDelegationId(item.delegationId || "");
                           setDelegationRole(item.delegationRole || "");
+                          setDelegationNik(item.delegationNik || "");
                           setExistingFiles(item.files || []);
                           setIsFormOpen(true);
                           window.scrollTo(0,0);

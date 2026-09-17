@@ -1,4 +1,6 @@
-import React from 'react';
+'use client';
+
+import React, { useEffect } from 'react';
 
 export type ToastType = 'info' | 'success' | 'warning' | 'error';
 
@@ -6,10 +8,18 @@ interface ToastProps {
   type?: ToastType;
   title?: string;
   description: string;
+  duration?: number;
   onClose: () => void;
 }
 
-export default function Toast({ type = 'success', title, description, onClose }: ToastProps) {
+export default function Toast({ type = 'success', title, description, duration = 4000, onClose }: ToastProps) {
+  useEffect(() => {
+    if (!duration || duration <= 0) return;
+    const timer = setTimeout(() => {
+      onClose();
+    }, duration);
+    return () => clearTimeout(timer);
+  }, [description, duration, onClose]);
   const getIcon = () => {
     switch (type) {
       case 'info': return <i className="fa-solid fa-circle-info text-gray-400"></i>;
