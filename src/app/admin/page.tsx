@@ -2346,15 +2346,8 @@ export default function AdminDesktopPage() {
                 )}
               </div>
               <div className="flex flex-col">
-                <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-bold text-gray-800 leading-tight truncate max-w-[150px]">{currentAdminName}</p>
-                  {isSuperAdmin && (
-                    <span className="px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md bg-pilar-darker text-pilar-gold border border-pilar-gold/30 flex items-center gap-0.5 shadow-2xs">
-                      <i className="fa-solid fa-crown text-[8px] text-pilar-gold"></i> Super Admin
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-gray-500">{isSuperAdmin ? "Master Administrator" : "HR Manager"}</p>
+                <p className="text-sm font-bold text-gray-800 leading-tight truncate max-w-[150px]">{currentAdminName}</p>
+                <p className="text-xs text-gray-500">{isSuperAdmin ? "Super Admin" : "HR Manager"}</p>
               </div>
             </div>
           </div>
@@ -4330,7 +4323,7 @@ export default function AdminDesktopPage() {
                                             )}
                                           </div>
                                           <div className="text-xs text-gray-400 mt-0.5">
-                                            {isSuper ? "Master Administrator" : "Admin Operasional / HRD"}
+                                            {isSuper ? "Super Admin" : "Admin Operasional / HRD"}
                                           </div>
                                         </div>
                                       </div>
