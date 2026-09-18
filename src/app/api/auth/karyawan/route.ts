@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { verifyAdminCaller } from '@/lib/auth-server';
 
 export async function POST(req: Request) {
   try {
+    const caller = await verifyAdminCaller(req);
+    if (!caller) {
+      return NextResponse.json({ error: 'Akses Ditolak: Khusus Administrator.' }, { status: 403 });
+    }
+
     const data = await req.json();
     const { nama, email, password, posisi, status, lokasiId, gajiPokok, id, shiftMasuk, shiftKeluar, noInduk, noWa, bpjsTk, bpjsKes } = data;
 
@@ -127,6 +133,11 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
+    const caller = await verifyAdminCaller(req);
+    if (!caller) {
+      return NextResponse.json({ error: 'Akses Ditolak: Khusus Administrator.' }, { status: 403 });
+    }
+
     const { searchParams } = new URL(req.url);
     const uid = searchParams.get('uid');
     

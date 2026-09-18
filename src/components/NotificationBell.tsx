@@ -37,14 +37,7 @@ export default function NotificationBell() {
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        const { getEmployee } = await import("@/lib/db");
-        const emp = await getEmployee(user.uid);
-        const ids = new Set<string>();
-        ids.add(user.uid);
-        if (emp?.id) ids.add(emp.id);
-        if (emp?.karyawanId) ids.add(emp.karyawanId);
-        if (emp?.noInduk) ids.add(emp.noInduk);
-        setUserIds(Array.from(ids));
+        setUserIds([user.uid]);
       } else {
         setUserIds([]);
       }

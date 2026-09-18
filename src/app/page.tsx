@@ -58,18 +58,46 @@ export default function EmployeeDashboard() {
     }, 3000);
   };
 
+  // Helper verifikasi apakah string tanggal merujuk pada hari ini
+  const isDateToday = (dateStr?: string): boolean => {
+    if (!dateStr) return false;
+    const now = new Date();
+    const d = now.getDate();
+    const m = now.getMonth() + 1;
+    const y = now.getFullYear();
+
+    const candidates = [
+      `${d}/${m}/${y}`,
+      `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`,
+      `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
+      now.toLocaleDateString("id-ID")
+    ];
+    if (candidates.includes(dateStr.trim())) return true;
+
+    try {
+      const clean = dateStr.replace(/-/g, '/').split('/').map(p => parseInt(p, 10)).filter(n => !isNaN(n));
+      return clean.includes(d) && clean.includes(m) && clean.includes(y);
+    } catch {
+      return false;
+    }
+  };
+
   useEffect(() => {
     let timer: NodeJS.Timeout;
     const startTime = Date.now();
 
-    const fetchServerAtt = async (empId: string, todayDate: string) => {
+    const fetchServerAtt = async (empId: string) => {
        const existingAtt: any = await getTodayAttendance(empId);
        if (existingAtt) {
-          setTimeCheckin(existingAtt.jamMasuk || "--:--");
-          if (existingAtt.jamMasuk) setHasCheckedIn(true);
-          if (existingAtt.jamKeluar) setTimeCheckout(existingAtt.jamKeluar);
+          if (existingAtt.jamMasuk) {
+            setTimeCheckin(existingAtt.jamMasuk);
+            setHasCheckedIn(true);
+          }
+          if (existingAtt.jamKeluar) {
+            setTimeCheckout(existingAtt.jamKeluar);
+          }
           localStorage.setItem("pilar_today_attendance", JSON.stringify({
-             date: todayDate,
+             date: existingAtt.tanggal,
              timeCheckin: existingAtt.jamMasuk || "--:--",
              timeCheckout: existingAtt.jamKeluar || null,
              docId: existingAtt.id
@@ -91,8 +119,23 @@ export default function EmployeeDashboard() {
       const combinedHistory: any[] = [];
       
       attendances.forEach((att: any) => {
-         const [d, m, y] = att.tanggal.split('/');
-         const dateObj = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
+         if (!att.tanggal) return;
+         let d = '', m = '', y = '';
+         if (att.tanggal.includes('-')) {
+           const parts = att.tanggal.split('-');
+           if (parts[0].length === 4) {
+             y = parts[0]; m = parts[1]; d = parts[2];
+           } else {
+             d = parts[0]; m = parts[1]; y = parts[2];
+           }
+         } else if (att.tanggal.includes('/')) {
+           const parts = att.tanggal.split('/');
+           d = parts[0]; m = parts[1]; y = parts[2];
+         }
+         if (!y || !m || !d) return;
+
+         const dateObj = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+         if (isNaN(dateObj.getTime())) return;
          
          if (dateObj.getMonth() === currentMonth && dateObj.getFullYear() === currentYear) {
             if (att.status === 'Hadir' || att.status === 'Terlambat') {
@@ -121,7 +164,7 @@ export default function EmployeeDashboard() {
 
          if (req.status === 'Disetujui') {
              if (dateObj.getMonth() === currentMonth && dateObj.getFullYear() === currentYear) {
-                izinCount++;
+                 izinCount++;
              }
          }
          
@@ -144,28 +187,34 @@ export default function EmployeeDashboard() {
     const init = async (empId: string) => {
       try {
         const savedAtt = localStorage.getItem("pilar_today_attendance");
-        const todayDate = new Date().toLocaleDateString("id-ID");
         if (savedAtt) {
-          const parsed = JSON.parse(savedAtt);
-          if (parsed.date === todayDate) {
-             setTimeCheckin(parsed.timeCheckin || "--:--");
-             if (parsed.timeCheckin) setHasCheckedIn(true);
-             if (parsed.timeCheckout) setTimeCheckout(parsed.timeCheckout);
-          } else {
-             localStorage.removeItem("pilar_today_attendance");
-             // Fetch fallback from server if not in localStorage today
-             await fetchServerAtt(empId, todayDate);
+          try {
+            const parsed = JSON.parse(savedAtt);
+            if (isDateToday(parsed.date)) {
+               if (parsed.timeCheckin && parsed.timeCheckin !== "--:--") {
+                 setTimeCheckin(parsed.timeCheckin);
+                 setHasCheckedIn(true);
+               }
+               if (parsed.timeCheckout && parsed.timeCheckout !== "--:--") {
+                 setTimeCheckout(parsed.timeCheckout);
+               }
+            } else {
+               localStorage.removeItem("pilar_today_attendance");
+            }
+          } catch (err) {
+            localStorage.removeItem("pilar_today_attendance");
           }
-        } else {
-           await fetchServerAtt(empId, todayDate);
         }
         
+        // Selalu sinkronkan dengan database server agar status absensi 100% presisi
+        await fetchServerAtt(empId);
         await fetchHistoryData(empId);
       } catch (e) {
         console.error("Error init attendance:", e);
+      } finally {
+        setIsInitializingAttendance(false);
+        setLocationText("");
       }
-      setIsInitializingAttendance(false);
-      setLocationText("");
     };
     
     hasMountedOnce = true;
@@ -274,75 +323,90 @@ export default function EmployeeDashboard() {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
-        const now = new Date();
-        const timeString = now.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
         
-        if (type === "Masuk") {
-          setTimeCheckin(timeString);
-          setHasCheckedIn(true);
-          
-          const todayDate = new Date().toLocaleDateString("id-ID");
-          
-          const batasMasuk = currentUser?.shiftMasuk || "08:00";
-          const isTerlambat = timeString > batasMasuk;
+        const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
+        if (!idToken) {
+          showToast("Sesi login berakhir, silakan login ulang.", "error");
+          setIsLoadingLocation(false);
+          return;
+        }
 
-          const docId = await recordCheckIn({
-             karyawanId: currentUser ? currentUser.id : "unknown",
-             karyawanNama: currentUser ? currentUser.nama : "Karyawan Tidak Dikenal",
-             tanggal: todayDate,
-             jamMasuk: timeString,
-             jamKeluar: null,
-             status: isTerlambat ? "Terlambat" : "Hadir",
-             koordinatMasuk: { lat: latitude, lng: longitude }
-          });
-          
-          localStorage.setItem("pilar_today_attendance", JSON.stringify({
-            date: todayDate,
-            timeCheckin: timeString,
-            timeCheckout: null,
-            docId: docId
-          }));
-          
-        } else if (type === "Pulang" && hasCheckedIn) {
-          const batasKeluar = currentUser?.shiftKeluar || "17:00";
-          if (timeString < batasKeluar) {
-             showToast("Belum masuk waktu pulang.", "error");
-             setIsLoadingLocation(false);
-             setLocationText("Menunggu Waktu Pulang");
-             return;
+        if (type === "Masuk") {
+          try {
+            const res = await fetch("/api/attendance", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${idToken}`
+              },
+              body: JSON.stringify({ lat: latitude, lng: longitude })
+            });
+
+            const resData = await res.json();
+            if (!res.ok) {
+              showToast(resData.error || "Gagal absen masuk", "error");
+              setIsLoadingLocation(false);
+              return;
+            }
+
+            setTimeCheckin(resData.timeCheckin);
+            setHasCheckedIn(true);
+            showToast(resData.message || "Berhasil Absen Masuk!", "success");
+
+            localStorage.setItem("pilar_today_attendance", JSON.stringify({
+              date: resData.tanggal,
+              timeCheckin: resData.timeCheckin,
+              timeCheckout: null,
+              docId: resData.docId
+            }));
+          } catch (err) {
+            showToast("Gagal terhubung ke server absensi.", "error");
+            setIsLoadingLocation(false);
+            return;
           }
 
+        } else if (type === "Pulang" && hasCheckedIn) {
           showToast("Memproses Absen Pulang...", "success");
-          
-          const todayDate = new Date().toLocaleDateString("id-ID");
+
           const savedAtt = localStorage.getItem("pilar_today_attendance");
-          let data: any = { date: todayDate, timeCheckin: timeCheckin, timeCheckout: timeString };
-          
+          let targetDocId = null;
           if (savedAtt) {
             try {
-               data = { ...JSON.parse(savedAtt), timeCheckout: timeString };
-            } catch(e) {}
+              targetDocId = JSON.parse(savedAtt).docId;
+            } catch (e) {}
           }
-          
-          let finalDocId = data.docId;
-          
-          if (!finalDocId && currentUser) {
-             const existingAtt: any = await getTodayAttendance(currentUser.id);
-             if (existingAtt) finalDocId = existingAtt.id;
-          }
-          
-          if (finalDocId) {
-             const success = await recordCheckOut(finalDocId, timeString, { lat: latitude, lng: longitude });
-             if (success) {
-               data.docId = finalDocId;
-               localStorage.setItem("pilar_today_attendance", JSON.stringify(data));
-               setTimeCheckout(timeString);
-               showToast("Berhasil Absen Pulang!", "success");
-             } else {
-               showToast("Gagal menyimpan. Coba lagi", "error");
-             }
-          } else {
-             showToast("Data Absen Masuk tidak ditemukan", "error");
+
+          try {
+            const res = await fetch("/api/attendance", {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${idToken}`
+              },
+              body: JSON.stringify({ lat: latitude, lng: longitude, docId: targetDocId })
+            });
+
+            const resData = await res.json();
+            if (!res.ok) {
+              showToast(resData.error || "Gagal absen pulang", "error");
+              setIsLoadingLocation(false);
+              return;
+            }
+
+            setTimeCheckout(resData.timeCheckout);
+            showToast(resData.message || "Berhasil Absen Pulang!", "success");
+
+            let data: any = {
+              date: resData.tanggal,
+              timeCheckin: timeCheckin,
+              timeCheckout: resData.timeCheckout,
+              docId: resData.docId || targetDocId
+            };
+            localStorage.setItem("pilar_today_attendance", JSON.stringify(data));
+          } catch (err) {
+            showToast("Gagal terhubung ke server absensi.", "error");
+            setIsLoadingLocation(false);
+            return;
           }
         }
         

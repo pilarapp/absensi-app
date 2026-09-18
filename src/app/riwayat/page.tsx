@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import NotificationBell from "@/components/NotificationBell";
 import Toast from "@/components/Toast";
-import { subscribeToAllAttendance, getEmployee } from "@/lib/db";
+import { subscribeToEmployeeAttendance, getEmployee } from "@/lib/db";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
@@ -44,9 +44,9 @@ export default function RiwayatPage() {
         const emp = await getEmployee(user.uid);
         if (emp) {
           setCurrentUser(emp);
-          unsubscribeAttendance = subscribeToAllAttendance((data) => {
+          unsubscribeAttendance = subscribeToEmployeeAttendance(user.uid, (data) => {
             // Re-format tanggal to YYYY-MM-DD reliably
-            const formattedAttendance = data.filter(d => d.karyawanId === emp.id).map(d => {
+            const formattedAttendance = data.map(d => {
              let isoDate = d.tanggal || ""; // Fallback
              try {
                 // if d.tanggal is DD/MM/YYYY

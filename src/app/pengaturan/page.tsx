@@ -175,6 +175,7 @@ export default function PengaturanPage() {
 
     // 2. Upload langsung dengan progress tracking
     try {
+      const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
       const uploadedUrl = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         const formData = new FormData();
@@ -213,6 +214,9 @@ export default function PengaturanPage() {
 
         xhr.onerror = () => reject(new Error("Koneksi internet bermasalah"));
         xhr.open("POST", "/api/upload");
+        if (idToken) {
+          xhr.setRequestHeader("Authorization", `Bearer ${idToken}`);
+        }
         xhr.send(formData);
       });
 
@@ -231,7 +235,10 @@ export default function PengaturanPage() {
       if (oldPhotoUrl && oldPhotoUrl !== uploadedUrl) {
         fetch("/api/upload", {
           method: "DELETE",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            ...(idToken ? { "Authorization": `Bearer ${idToken}` } : {})
+          },
           body: JSON.stringify({ url: oldPhotoUrl })
         }).catch((err) => console.warn("Gagal menghapus foto lama dari storage:", err));
       }

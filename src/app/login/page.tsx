@@ -176,7 +176,7 @@ export default function LoginPage() {
         await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: 'karyawan' }),
+          body: JSON.stringify({ idToken, role: 'karyawan' }),
         });
       } catch (sessionErr) {
         console.warn("Gagal set session cookie:", sessionErr);

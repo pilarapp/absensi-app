@@ -136,7 +136,7 @@ export default function AdminLoginPage() {
         await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: 'admin', adminRole: assignedAdminRole }),
+          body: JSON.stringify({ idToken, role: 'admin', adminRole: assignedAdminRole }),
         });
       } catch (sessionErr) {
         console.warn("Gagal set admin session cookie:", sessionErr);

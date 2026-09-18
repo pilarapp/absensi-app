@@ -175,7 +175,7 @@ export default function AdminDesktopPage() {
           // Verifikasi hak akses Super Admin
           try {
             const roleInfo = await checkAdminRole(user.uid);
-            const isSuper = roleInfo.isSuperAdmin || email === 'pilarss@admin.com' || (typeof window !== 'undefined' && localStorage.getItem("admin_role") === "superadmin");
+            const isSuper = roleInfo.isSuperAdmin || email === 'pilarss@admin.com';
             setIsSuperAdmin(isSuper);
             setAdminRole(isSuper ? 'superadmin' : 'admin');
             if (roleInfo.nama) {
@@ -575,7 +575,7 @@ export default function AdminDesktopPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedPengajuan, setSelectedPengajuan] = useState<any>(null);
-  const [pengajuanTab, setPengajuanTab] = useState<"antrean" | "riwayat">("antrean");
+  const [pengajuanTab, setPengajuanTab] = useState<"antrean" | "revisi" | "riwayat">("antrean");
 
   // Surat Peringatan (SP) State
   const [spList, setSpList] = useState<SuratPeringatan[]>([]);
@@ -1192,7 +1192,13 @@ export default function AdminDesktopPage() {
       icon: "fa-solid fa-trash-can",
       onConfirm: async () => {
         try {
-          const res = await fetch(`/api/auth/karyawan?uid=${id}`, { method: 'DELETE' });
+          const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
+          const res = await fetch(`/api/auth/karyawan?uid=${id}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${idToken}`
+            }
+          });
           if (res.ok) {
             showToast("Karyawan berhasil dihapus.");
             logAdminActivity({
@@ -1237,9 +1243,13 @@ export default function AdminDesktopPage() {
 
     setIsSavingKaryawan(true);
     try {
+      const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
       const res = await fetch('/api/auth/karyawan', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
         body: JSON.stringify({
           id: editingKaryawan?.id,
           noInduk: formNoInduk || "",
@@ -2517,19 +2527,40 @@ export default function AdminDesktopPage() {
                 <div className="flex bg-gray-200/50 p-1 rounded-xl">
                   <button 
                     onClick={() => setPengajuanTab("antrean")}
-                    className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
+                    className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${
                       pengajuanTab === "antrean" ? "bg-white text-pilar-darker shadow-sm" : "text-gray-500 hover:text-gray-700"
                     }`}
                   >
-                    Antrean Persetujuan
+                    <span>Antrean Persetujuan</span>
+                    {pengajuanList.filter(p => p.status === "Menunggu").length > 0 && (
+                      <span className="bg-pilar-gold text-pilar-darker text-[11px] font-extrabold px-2 py-0.5 rounded-full shadow-sm">
+                        {pengajuanList.filter(p => p.status === "Menunggu").length}
+                      </span>
+                    )}
+                  </button>
+                  <button 
+                    onClick={() => setPengajuanTab("revisi")}
+                    className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${
+                      pengajuanTab === "revisi" ? "bg-white text-pilar-darker shadow-sm" : "text-gray-500 hover:text-gray-700"
+                    }`}
+                  >
+                    <span>Menunggu Revisi</span>
+                    {pengajuanList.filter(p => p.status === "Revisi").length > 0 && (
+                      <span className="bg-amber-500 text-white text-[11px] font-extrabold px-2 py-0.5 rounded-full shadow-sm">
+                        {pengajuanList.filter(p => p.status === "Revisi").length}
+                      </span>
+                    )}
                   </button>
                   <button 
                     onClick={() => setPengajuanTab("riwayat")}
-                    className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
+                    className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${
                       pengajuanTab === "riwayat" ? "bg-white text-pilar-darker shadow-sm" : "text-gray-500 hover:text-gray-700"
                     }`}
                   >
-                    Riwayat Pengajuan
+                    <span>Riwayat Selesai</span>
+                    <span className="text-gray-400 text-[11px] font-semibold">
+                      ({pengajuanList.filter(p => p.status !== "Menunggu" && p.status !== "Revisi").length})
+                    </span>
                   </button>
                 </div>
                 
@@ -2538,10 +2569,21 @@ export default function AdminDesktopPage() {
                     {pengajuanList.filter(p => p.status === "Menunggu").length} Pending
                   </span>
                 )}
+                {pengajuanTab === "revisi" && (
+                  <span className="bg-amber-100 text-amber-800 text-xs font-bold px-4 py-2 rounded-full shadow-sm border border-amber-200 flex items-center gap-1.5">
+                    <i className="fa-solid fa-clock-rotate-left text-amber-600"></i>
+                    <span>{pengajuanList.filter(p => p.status === "Revisi").length} Menunggu Tindakan Karyawan</span>
+                  </span>
+                )}
+                {pengajuanTab === "riwayat" && (
+                  <span className="bg-gray-100 text-gray-600 text-xs font-bold px-4 py-2 rounded-full shadow-sm border border-gray-200">
+                    {pengajuanList.filter(p => p.status !== "Menunggu" && p.status !== "Revisi").length} Selesai Diproses
+                  </span>
+                )}
               </div>
               
               <div className="p-0">
-                {pengajuanTab === "antrean" ? (
+                {pengajuanTab === "antrean" && (
                   pengajuanList.filter(p => p.status === "Menunggu").length === 0 ? (
                     <div className="py-16 text-center">
                       <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-100">
@@ -2582,7 +2624,7 @@ export default function AdminDesktopPage() {
                                     <div className="font-extrabold text-gray-800 text-base">
                                       {pengajuan.karyawanNama}
                                       {pengajuan.isRevision && (
-                                        <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-600 border border-orange-200 uppercase tracking-wider align-middle" title="Pengajuan ini merupakan hasil revisi">Revisi</span>
+                                        <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-600 border border-orange-200 uppercase tracking-wider align-middle" title="Pengajuan ini merupakan hasil perbaikan dari karyawan">Revisi</span>
                                       )}
                                     </div>
                                     <div className="text-[11px] text-gray-500 mt-0.5 font-semibold tracking-wide">
@@ -2593,9 +2635,17 @@ export default function AdminDesktopPage() {
                               </td>
                               
                               <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all">
-                                <span className="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-sm border bg-gray-100 text-gray-600 border-gray-200">
-                                  {pengajuan.type}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-sm border bg-gray-100 text-gray-600 border-gray-200">
+                                    {pengajuan.type}
+                                  </span>
+                                  {pengajuan.files && pengajuan.files.length > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 text-blue-600 border border-blue-200 shadow-sm" title={`${pengajuan.files.length} dokumen dilampirkan`}>
+                                      <i className="fa-solid fa-paperclip text-[9px]"></i>
+                                      <span>{pengajuan.files.length}</span>
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               
                               <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-gray-600 font-medium">
@@ -2629,13 +2679,124 @@ export default function AdminDesktopPage() {
                       </table>
                     </div>
                   )
-                ) : (
-                  pengajuanList.filter(p => p.status !== "Menunggu").length === 0 ? (
+                )}
+
+                {pengajuanTab === "revisi" && (
+                  pengajuanList.filter(p => p.status === "Revisi").length === 0 ? (
+                    <div className="py-16 text-center">
+                      <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-100">
+                        <i className="fa-solid fa-rotate-left text-3xl text-amber-500"></i>
+                      </div>
+                      <p className="text-gray-700 font-bold text-lg">Tidak ada pengajuan yang sedang menunggu revisi.</p>
+                      <p className="text-gray-400 text-xs mt-1">Pengajuan yang dikembalikan ke karyawan untuk direvisi akan tampil di sini hingga diperbaiki.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto p-6 -mt-2">
+                      <table className="w-full text-left text-sm whitespace-nowrap border-separate" style={{borderSpacing: "0 16px"}}>
+                        <thead>
+                          <tr className="text-gray-500 font-semibold">
+                            <th className="px-6 py-2 font-medium">Karyawan</th>
+                            <th className="px-6 py-2 font-medium">Jenis Pengajuan</th>
+                            <th className="px-6 py-2 font-medium">Tanggal & Durasi</th>
+                            <th className="px-6 py-2 font-medium">Catatan Revisi HRD</th>
+                            <th className="px-6 py-2 font-medium">Status</th>
+                            <th className="px-6 py-2 font-medium text-right">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pengajuanList.filter(p => p.status === "Revisi").map((pengajuan) => (
+                            <tr key={pengajuan.id} className="group transition-all duration-300 hover:-translate-y-1 relative z-10">
+                              <td className="px-6 py-5 bg-white rounded-l-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-l border-amber-100/60 group-hover:border-amber-400/50 transition-all">
+                                <div className="flex items-center space-x-4">
+                                  <div className="w-12 h-12 rounded-2xl bg-amber-50 overflow-hidden flex items-center justify-center font-black text-amber-700 border border-amber-200/60 shadow-inner group-hover:border-amber-400 transition-colors">
+                                    {(() => {
+                                      const foto = karyawanList.find(k => k.id === pengajuan.karyawanId || k.nama === pengajuan.karyawanNama || (k as any).noInduk === pengajuan.karyawanId || (k as any).karyawanId === pengajuan.karyawanId)?.foto;
+                                      return foto ? (
+                                        <img src={foto} alt={pengajuan.karyawanNama || "Karyawan"} className="w-full h-full object-cover" />
+                                      ) : (
+                                        <span>
+                                          {pengajuan.karyawanNama ? pengajuan.karyawanNama.substring(0, 2).toUpperCase() : "??"}
+                                        </span>
+                                      );
+                                    })()}
+                                  </div>
+                                  <div className="flex flex-col justify-center">
+                                    <div className="font-extrabold text-gray-800 text-base">{pengajuan.karyawanNama}</div>
+                                    <div className="text-[11px] text-gray-500 mt-0.5 font-semibold tracking-wide">
+                                      NIK: {karyawanList.find(k => k.id === pengajuan.karyawanId || k.nama === pengajuan.karyawanNama || (k as any).noInduk === pengajuan.karyawanId || (k as any).karyawanId === pengajuan.karyawanId)?.noInduk || "-"}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              
+                              <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-amber-100/60 group-hover:border-y-amber-400/50 transition-all">
+                                <div className="flex items-center gap-2">
+                                  <span className="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-sm border bg-gray-100 text-gray-600 border-gray-200">
+                                    {pengajuan.type}
+                                  </span>
+                                  {pengajuan.files && pengajuan.files.length > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300 shadow-sm" title={`${pengajuan.files.length} dokumen dilampirkan`}>
+                                      <i className="fa-solid fa-paperclip text-[9px]"></i>
+                                      <span>{pengajuan.files.length}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              
+                              <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-amber-100/60 group-hover:border-y-amber-400/50 transition-all text-gray-600 font-medium">
+                                <div className="flex flex-col">
+                                  <div className="flex items-center space-x-1.5 text-xs text-gray-800 font-bold">
+                                    <i className="fa-solid fa-calendar-day text-gray-400 text-[11px]"></i>
+                                    <span>{pengajuan.startDate}</span>
+                                  </div>
+                                  <div className="text-[11px] text-gray-500 mt-0.5">
+                                    Durasi: {pengajuan.duration} Hari
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-amber-100/60 group-hover:border-y-amber-400/50 transition-all max-w-xs">
+                                <div className="p-2.5 rounded-xl bg-amber-50/90 border border-amber-200/80 text-xs text-amber-900 flex items-start gap-2 shadow-sm">
+                                  <i className="fa-solid fa-comment-dots text-amber-600 mt-0.5 shrink-0"></i>
+                                  <span className="line-clamp-2 italic font-medium" title={pengajuan.alasanPenolakan || "-"}>
+                                    "{pengajuan.alasanPenolakan || "Perlu perbaikan/kelengkapan data"}"
+                                  </span>
+                                </div>
+                              </td>
+                              
+                              <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-amber-100/60 group-hover:border-y-amber-400/50 transition-all">
+                                <span className="px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider shadow-sm border bg-amber-100 text-amber-800 border-amber-200 flex items-center gap-1.5 w-fit">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                                  <span>REVISI</span>
+                                </span>
+                              </td>
+                              
+                              <td className="px-6 py-5 bg-white rounded-r-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-r border-amber-100/60 group-hover:border-amber-400/50 transition-all text-right">
+                                <button 
+                                  onClick={() => {
+                                    setSelectedPengajuan(pengajuan);
+                                    setDetailModalOpen(true);
+                                  }}
+                                  className="inline-flex items-center justify-center px-6 py-2.5 bg-pilar-darker hover:bg-black text-pilar-gold font-bold rounded-xl text-sm transition-all shadow-md hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20"
+                                >
+                                  <span>Cek Detail</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                )}
+
+                {pengajuanTab === "riwayat" && (
+                  pengajuanList.filter(p => p.status !== "Menunggu" && p.status !== "Revisi").length === 0 ? (
                     <div className="py-16 text-center">
                       <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-100">
                         <i className="fa-solid fa-history text-3xl text-gray-300"></i>
                       </div>
-                      <p className="text-gray-500 font-medium text-lg">Belum ada riwayat pengajuan.</p>
+                      <p className="text-gray-500 font-medium text-lg">Belum ada riwayat pengajuan yang selesai.</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto p-6 -mt-2">
@@ -2651,7 +2812,7 @@ export default function AdminDesktopPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {pengajuanList.filter(p => p.status !== "Menunggu").map((pengajuan) => (
+                          {pengajuanList.filter(p => p.status !== "Menunggu" && p.status !== "Revisi").map((pengajuan) => (
                             <tr key={pengajuan.id} className="group transition-all duration-300 hover:-translate-y-1 relative z-10">
                               <td className="px-6 py-5 bg-white rounded-l-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-l border-gray-100 group-hover:border-pilar-gold/40 transition-all">
                                 <div className="flex items-center space-x-4">
@@ -2677,9 +2838,17 @@ export default function AdminDesktopPage() {
                               </td>
                               
                               <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all">
-                                <span className="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-sm border bg-gray-100 text-gray-600 border-gray-200">
-                                  {pengajuan.type}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-sm border bg-gray-100 text-gray-600 border-gray-200">
+                                    {pengajuan.type}
+                                  </span>
+                                  {pengajuan.files && pengajuan.files.length > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 text-blue-600 border border-blue-200 shadow-sm" title={`${pengajuan.files.length} dokumen dilampirkan`}>
+                                      <i className="fa-solid fa-paperclip text-[9px]"></i>
+                                      <span>{pengajuan.files.length}</span>
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               
                               <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all text-gray-600 font-medium">
@@ -2697,10 +2866,10 @@ export default function AdminDesktopPage() {
                               </td>
                               
                               <td className="px-6 py-5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-gray-100 group-hover:border-y-pilar-gold/40 transition-all">
-                                <span className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-sm border
-                                  ${pengajuan.status === "Disetujui" ? "bg-green-100 text-green-700 border-green-200" : 
-                                    pengajuan.status === "Revisi" ? "bg-red-100 text-red-600 border-red-200" : 
-                                    "bg-gray-100 text-gray-500 border-gray-200"}`
+                                <span className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-sm border ${
+                                  pengajuan.status === "Disetujui" ? "bg-green-100 text-green-700 border-green-200" : 
+                                  pengajuan.status === "Ditolak" ? "bg-red-100 text-red-600 border-red-200" : 
+                                  "bg-gray-100 text-gray-500 border-gray-200"}`
                                 }>
                                   {pengajuan.status}
                                 </span>
@@ -4564,6 +4733,16 @@ export default function AdminDesktopPage() {
                         {selectedPengajuan.additionalNotes || "-"}
                       </span>
                     </div>
+                    {selectedPengajuan.alasanPenolakan && (
+                      <div className="mt-2 pt-2 border-t border-amber-200/60">
+                        <span className="block text-amber-800 font-bold mb-1">
+                          {selectedPengajuan.status === "Revisi" ? "Catatan Revisi dari HRD:" : "Catatan Penolakan:"}
+                        </span>
+                        <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 font-medium italic">
+                          "{selectedPengajuan.alasanPenolakan}"
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -4600,6 +4779,77 @@ export default function AdminDesktopPage() {
                   </div>
                 )}
               </div>
+
+              {/* DOKUMEN LAMPIRAN / BUKTI PENDUKUNG */}
+              {selectedPengajuan.files && selectedPengajuan.files.length > 0 && (
+                <div className="print:hidden mb-8 border border-gray-300 rounded-xl overflow-hidden shadow-sm">
+                  <div className="bg-[#114289] text-white font-bold px-4 py-2 text-xs uppercase tracking-wider flex items-center justify-between" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                    <div className="flex items-center gap-2">
+                      <i className="fa-solid fa-paperclip text-pilar-gold"></i>
+                      <span>Dokumen Lampiran Pendukung ({selectedPengajuan.files.length} Berkas)</span>
+                    </div>
+                    <span className="text-[10px] text-gray-200 font-normal print:hidden">Klik tombol untuk melihat / mengunduh file asli</span>
+                  </div>
+                  <div className="p-4 bg-gray-50/50 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {selectedPengajuan.files.map((file: any, fIdx: number) => {
+                      const fileUrl = typeof file === 'string' ? file : file?.url;
+                      const fileName = typeof file === 'string' ? file.split('/').pop() : (file?.name || `Berkas-${fIdx + 1}`);
+                      const isImage = fileUrl && (/\.(jpeg|jpg|png|webp)($|\?)/i.test(fileUrl) || (typeof file === 'object' && file?.type?.startsWith('image')));
+                      const isPdf = fileUrl && (/\.pdf($|\?)/i.test(fileUrl) || (typeof file === 'object' && file?.type === 'application/pdf'));
+
+                      return (
+                        <div key={fIdx} className="group border border-gray-200 hover:border-pilar-gold rounded-xl p-3 bg-white transition-all shadow-sm flex flex-col justify-between">
+                          <div className="flex items-start space-x-3 mb-2">
+                            <div className="w-10 h-10 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center shrink-0 shadow-inner group-hover:border-pilar-gold/50 transition-colors">
+                              {isImage ? (
+                                <i className="fa-solid fa-image text-blue-500 text-lg"></i>
+                              ) : isPdf ? (
+                                <i className="fa-solid fa-file-pdf text-red-500 text-lg"></i>
+                              ) : (
+                                <i className="fa-solid fa-file-lines text-amber-500 text-lg"></i>
+                              )}
+                            </div>
+                            <div className="overflow-hidden flex-1">
+                              <p className="font-bold text-xs text-gray-900 truncate" title={fileName}>
+                                {fileName}
+                              </p>
+                              <span className="text-[10px] text-gray-400 block mt-0.5 font-medium">
+                                {isImage ? "Gambar / Foto" : isPdf ? "Dokumen PDF" : "File Lampiran"}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {/* Image preview thumbnail */}
+                          {isImage && fileUrl && (
+                            <div className="mb-2.5 w-full h-28 rounded-lg overflow-hidden bg-gray-100 border border-gray-200 relative group/img">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img 
+                                src={fileUrl} 
+                                alt={fileName} 
+                                className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300" 
+                              />
+                            </div>
+                          )}
+
+                          {fileUrl ? (
+                            <a 
+                              href={fileUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="print:hidden w-full py-2 px-3 bg-pilar-darker hover:bg-black text-pilar-gold font-bold text-center rounded-lg text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm hover:shadow"
+                            >
+                              <i className="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                              <span>Buka / Unduh File</span>
+                            </a>
+                          ) : (
+                            <span className="text-[10px] text-gray-400 italic">URL file tidak tersedia</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* TANDA TANGAN */}
               <div className={`grid ${selectedPengajuan.delegationName && selectedPengajuan.delegationName !== "__________________" ? "grid-cols-3" : "grid-cols-2 max-w-2xl mx-auto"} gap-6 text-center text-xs mt-10`}>
@@ -4661,6 +4911,11 @@ export default function AdminDesktopPage() {
                         REJECTED
                       </div>
                     )}
+                    {selectedPengajuan.status === "Revisi" && (
+                      <div className="absolute top-[-50px] left-1/2 transform -translate-x-1/2 border-4 border-amber-600 text-amber-600 font-black text-xs px-2 py-1 rotate-[-15deg] opacity-70 uppercase tracking-widest rounded whitespace-nowrap">
+                        PERLU REVISI
+                      </div>
+                    )}
                     <p className="font-bold text-gray-900 border-b border-gray-400 pb-1 mx-auto w-4/5 uppercase">
                       {selectedPengajuan.approverNama || currentAdminName || "PT. PILAR SENTRA SOLUSI"}
                     </p>
@@ -4700,9 +4955,10 @@ export default function AdminDesktopPage() {
                     setDetailModalOpen(false);
                     openRejectModal(selectedPengajuan.id);
                   }} 
-                  className="px-6 py-2.5 rounded-xl border-2 border-red-200 text-red-600 font-bold hover:bg-red-50 hover:text-red-700 transition-all focus:ring-4 focus:ring-red-100"
+                  className="px-6 py-2.5 rounded-xl border-2 border-amber-200 text-amber-700 hover:bg-amber-50 font-bold transition-all focus:ring-4 focus:ring-amber-100 flex items-center gap-2"
                 >
-                  Tolak
+                  <i className="fa-solid fa-rotate-left"></i>
+                  <span>Minta Revisi</span>
                 </button>
                 <button 
                   onClick={() => {
@@ -4712,6 +4968,21 @@ export default function AdminDesktopPage() {
                   className="px-8 py-2.5 rounded-xl bg-pilar-darker text-pilar-gold font-bold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all focus:ring-4 focus:ring-pilar-darker/30"
                 >
                   Setujui
+                </button>
+              </div>
+            )}
+
+            {selectedPengajuan.status === "Revisi" && (
+              <div className="print:hidden p-4 bg-amber-50/80 border-t border-amber-200 flex flex-col sm:flex-row items-center justify-between gap-3 rounded-b-3xl text-xs text-amber-900 z-10 relative">
+                <div className="flex items-center gap-2">
+                  <i className="fa-solid fa-clock-rotate-left text-amber-600 text-base"></i>
+                  <span>Status: <strong>Menunggu Revisi Karyawan</strong>. Karyawan sedang diminta melengkapi atau memperbaiki data pengajuan ini.</span>
+                </div>
+                <button 
+                  onClick={() => setDetailModalOpen(false)}
+                  className="px-5 py-2 bg-white border border-amber-300 rounded-xl font-bold text-amber-900 hover:bg-amber-100 transition-colors shadow-sm shrink-0"
+                >
+                  Tutup
                 </button>
               </div>
             )}

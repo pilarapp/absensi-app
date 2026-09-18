@@ -89,17 +89,30 @@ export const subscribeToEmployees = (callback: (data: any[]) => void) => {
 };
 
 export const getTodayAttendance = async (karyawanId: string) => {
-  if (!db) return null;
+  if (!db || !karyawanId) return null;
   try {
-    const today = new Date().toLocaleDateString("id-ID");
+    const now = new Date();
+    const d = now.getDate();
+    const m = now.getMonth() + 1;
+    const y = now.getFullYear();
+
+    const possibleDates = Array.from(new Set([
+      `${d}/${m}/${y}`,
+      `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`,
+      `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
+      now.toLocaleDateString("id-ID")
+    ]));
+
     const q = query(
       collection(db, COLL_ATTENDANCE), 
       where("karyawanId", "==", karyawanId),
-      where("tanggal", "==", today)
+      where("tanggal", "in", possibleDates)
     );
     const snap = await getDocs(q);
     if (!snap.empty) {
-      return { id: snap.docs[0].id, ...snap.docs[0].data() } as any;
+      const docs = snap.docs.map(doc => ({ id: doc.id, ...normalizeData(doc.data()) }));
+      docs.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      return docs[0];
     }
     return null;
   } catch (err) {
@@ -223,6 +236,28 @@ export const updateRequestStatus = async (
   alasanPenolakan: string = "",
   approverInfo?: { approverNama?: string; approverNik?: string; approverEmail?: string }
 ) => {
+  // 1. Coba via API backend server terlebih dahulu
+  try {
+    const { auth } = await import("@/lib/firebase");
+    const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
+    if (token) {
+      const res = await fetch("/api/requests", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ requestId, status, alasanPenolakan, approverInfo })
+      });
+      if (res.ok) {
+        return true;
+      }
+    }
+  } catch (apiErr) {
+    console.warn("Gagal status update via API, mencoba direct Firestore:", apiErr);
+  }
+
+  // 2. Fallback direct client updateDoc
   if (!db) return false;
   try {
     const reqRef = doc(db, COLL_REQUESTS, requestId);
@@ -245,6 +280,30 @@ export const updateRequestStatus = async (
 };
 
 export const updateRequest = async (requestId: string, updateData: any) => {
+  // 1. Coba via API backend server terlebih dahulu untuk mengatasi kendala security rules Firestore di cloud
+  try {
+    const { auth } = await import("@/lib/firebase");
+    const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
+    if (token) {
+      const res = await fetch("/api/requests", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ requestId, updateData })
+      });
+      if (res.ok) {
+        return true;
+      }
+      const errData = await res.json().catch(() => ({}));
+      console.warn("Backend updateRequest returned non-ok:", res.status, errData);
+    }
+  } catch (apiErr) {
+    console.warn("Gagal update via /api/requests, mencoba direct Firestore:", apiErr);
+  }
+
+  // 2. Fallback direct client updateDoc
   if (!db) return false;
   try {
     const reqRef = doc(db, COLL_REQUESTS, requestId);
@@ -311,6 +370,36 @@ export const subscribeToAllAttendance = (callback: (data: any[]) => void) => {
       ...normalizeData(doc.data())
     }));
     callback(data);
+  });
+};
+
+// Subscribe ke pengajuan khusus milik karyawan bersangkutan (Least Privilege Firestore Rules)
+export const subscribeToEmployeeRequests = (karyawanId: string, callback: (data: any[]) => void) => {
+  if (!db || !karyawanId) return () => {};
+  const q = query(collection(db, COLL_REQUESTS), where("karyawanId", "==", karyawanId));
+  return onSnapshot(q, (snapshot) => {
+    const requests = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...normalizeData(doc.data())
+    }));
+    callback(requests);
+  }, (err) => {
+    console.warn("subscribeToEmployeeRequests error:", err);
+  });
+};
+
+// Subscribe ke riwayat absensi khusus milik karyawan bersangkutan (Least Privilege Firestore Rules)
+export const subscribeToEmployeeAttendance = (karyawanId: string, callback: (data: any[]) => void) => {
+  if (!db || !karyawanId) return () => {};
+  const q = query(collection(db, COLL_ATTENDANCE), where("karyawanId", "==", karyawanId));
+  return onSnapshot(q, (snapshot) => {
+    const data = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...normalizeData(doc.data())
+    }));
+    callback(data);
+  }, (err) => {
+    console.warn("subscribeToEmployeeAttendance error:", err);
   });
 };
 

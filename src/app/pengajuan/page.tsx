@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import NotificationBell from "@/components/NotificationBell";
 import Toast from "@/components/Toast";
-import { submitRequest, updateRequest, fetchRequestById, subscribeToRequests, addNotification, getEmployee, fetchEmployees } from "@/lib/db";
+import { submitRequest, updateRequest, fetchRequestById, subscribeToEmployeeRequests, addNotification, getEmployee, fetchEmployees } from "@/lib/db";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
@@ -39,41 +39,41 @@ export default function PengajuanPage() {
   }, []);
 
   useEffect(() => {
+    let unsubscribeReq: any;
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
         const employeeData = await getEmployee(user.uid);
         if (employeeData) {
           setCurrentUser({
             ...employeeData,
-            // Prioritaskan nama asli dari akun Google pengguna
             nama: user.displayName || employeeData.nama,
-            // Gunakan nomor induk asli jika ada, kalau tidak gunakan awalan UID agar lebih rapi
-            id: employeeData.karyawanId || employeeData.noInduk || (user.uid ? `PLR-${user.uid.substring(0,6).toUpperCase()}` : "-")
+            id: user.uid,
+            noInduk: employeeData.noInduk || employeeData.karyawanId || "-"
           });
         } else {
           setCurrentUser({
-            id: user.uid ? `PLR-${user.uid.substring(0,6).toUpperCase()}` : "-",
+            id: user.uid,
             nama: user.displayName || "Karyawan",
             divisi: "Staff",
-            posisi: "Karyawan Umum"
+            posisi: "Karyawan Umum",
+            noInduk: "-"
           });
         }
-      }
-    });
 
-    const unsubscribe = subscribeToRequests((data) => {
-      // Menampilkan pengajuan yang relevan (fallback ke ID dummy jika user belum termuat)
-      const userId = currentUser ? currentUser.id : "PLR-2023-089";
-      const myRequests = data.filter((p: any) => p.karyawanId === userId);
-      myRequests.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setPengajuanList(myRequests);
+        unsubscribeReq = subscribeToEmployeeRequests(user.uid, (data) => {
+          data.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          setPengajuanList(data);
+        });
+      } else {
+        setPengajuanList([]);
+      }
     });
     
     return () => {
       unsubscribeAuth();
-      unsubscribe();
+      if (unsubscribeReq) unsubscribeReq();
     };
-  }, [currentUser?.id]);
+  }, []);
 
   const getStatusStyle = (status: string) => {
     switch (status) {
@@ -185,14 +185,18 @@ export default function PengajuanPage() {
       }
       let uploadedFilesData = [];
       if (attachments.length > 0) {
-        setToastMessage("Mengunggah dokumen ke Google Drive...");
+        setToastMessage("Mengunggah dokumen lampiran...");
         const formData = new FormData();
         attachments.forEach(file => {
           formData.append("files", file);
         });
         
+        const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
         const uploadResponse = await fetch("/api/upload", {
           method: "POST",
+          headers: {
+            ...(idToken ? { "Authorization": `Bearer ${idToken}` } : {})
+          },
           body: formData,
         });
         
@@ -625,6 +629,31 @@ export default function PengajuanPage() {
                   {item.status !== "Revisi" && (
                     <div className="mt-2 text-xs text-gray-400 bg-black/20 p-2 rounded">
                       <span className="font-semibold text-gray-300">Keterangan:</span> {item.reason}
+                    </div>
+                  )}
+
+                  {item.files && item.files.length > 0 && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5 items-center">
+                      <span className="text-[10px] text-gray-400 font-medium mr-1 flex items-center gap-1">
+                        <i className="fa-solid fa-paperclip text-pilar-gold"></i> Lampiran:
+                      </span>
+                      {item.files.map((f: any, fIdx: number) => {
+                        const fileUrl = typeof f === 'string' ? f : f?.url;
+                        const fileName = typeof f === 'string' ? f.split('/').pop() : (f?.name || `Berkas-${fIdx + 1}`);
+                        return (
+                          <a 
+                            key={fIdx}
+                            href={fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[11px] text-pilar-gold transition-colors border border-white/10"
+                            title={fileName}
+                          >
+                            <i className="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+                            <span className="truncate max-w-[140px]">{fileName}</span>
+                          </a>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
