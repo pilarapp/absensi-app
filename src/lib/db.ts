@@ -315,6 +315,85 @@ export const updateRequest = async (requestId: string, updateData: any) => {
   }
 };
 
+export const deleteRequest = async (requestId: string) => {
+  try {
+    const { auth } = await import("@/lib/firebase");
+    const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
+    if (token) {
+      const res = await fetch(`/api/requests?id=${encodeURIComponent(requestId)}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      if (res.ok) return true;
+      const data = await res.json().catch(() => ({}));
+      console.warn("deleteRequest API returned non-ok:", res.status, data);
+    }
+  } catch (e) {
+    console.warn("deleteRequest API error:", e);
+  }
+
+  // Fallback direct client deleteDoc
+  if (!db) return false;
+  try {
+    const { deleteDoc } = await import("firebase/firestore");
+    await deleteDoc(doc(db, COLL_REQUESTS, requestId));
+    return true;
+  } catch (err) {
+    console.error("Gagal menghapus pengajuan via client:", err);
+    return false;
+  }
+};
+
+export const deleteAllRequestHistory = async () => {
+  try {
+    const { auth } = await import("@/lib/firebase");
+    const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
+    if (!token) return { success: false, error: "Tidak terautentikasi" };
+
+    const res = await fetch("/api/requests?all=true", {
+      method: "DELETE",
+      headers: {
+        "Authorization": `Bearer ${token}`
+      }
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Gagal menghapus semua riwayat pengajuan.");
+    }
+    return { success: true, count: data.deletedCount };
+  } catch (e: any) {
+    console.error("deleteAllRequestHistory error:", e);
+    return { success: false, error: e.message };
+  }
+};
+
+export const deleteAllAttendanceHistory = async () => {
+  try {
+    const { auth } = await import("@/lib/firebase");
+    const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
+    if (!token) return { success: false, error: "Tidak terautentikasi" };
+
+    const res = await fetch("/api/attendance?all=true", {
+      method: "DELETE",
+      headers: {
+        "Authorization": `Bearer ${token}`
+      }
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Gagal menghapus semua riwayat absensi.");
+    }
+    return { success: true, count: data.deletedCount };
+  } catch (e: any) {
+    console.error("deleteAllAttendanceHistory error:", e);
+    return { success: false, error: e.message };
+  }
+};
+
 // Normalisasi Firestore data (terutama untuk Timestamp)
 const normalizeData = (docData: any) => {
   const data = { ...docData };

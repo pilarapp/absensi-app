@@ -366,8 +366,6 @@ export default function EmployeeDashboard() {
           }
 
         } else if (type === "Pulang" && hasCheckedIn) {
-          showToast("Memproses Absen Pulang...", "success");
-
           const savedAtt = localStorage.getItem("pilar_today_attendance");
           let targetDocId = null;
           if (savedAtt) {

@@ -235,3 +235,103 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: error.message || 'Gagal memproses absen pulang.' }, { status: 500 });
   }
 }
+
+/**
+ * DELETE /api/attendance
+ * Menghapus satu atau seluruh riwayat absensi (Khusus Super Admin untuk all=true)
+ */
+export async function DELETE(req: Request) {
+  try {
+    const caller = await verifyCaller(req);
+    if (!caller || !caller.isAdmin) {
+      return NextResponse.json(
+        { error: 'Akses Ditolak: Hanya Admin / Super Admin yang berhak menghapus riwayat absensi.' },
+        { status: 403 }
+      );
+    }
+
+    const { searchParams } = new URL(req.url);
+    const docId = searchParams.get('id');
+    const deleteAll = searchParams.get('all') === 'true';
+
+    // 1. Hapus Semua Riwayat Absensi (Khusus Super Admin)
+    if (deleteAll) {
+      if (!caller.isSuperAdmin) {
+        return NextResponse.json(
+          { error: 'Akses Ditolak: Hanya Super Admin yang berhak menghapus seluruh riwayat absensi.' },
+          { status: 403 }
+        );
+      }
+
+      const snapshot = await adminDb.collection('attendance').get();
+      const batch = adminDb.batch();
+      let count = 0;
+
+      snapshot.docs.forEach((docSnap) => {
+        batch.delete(docSnap.ref);
+        count++;
+      });
+
+      if (count > 0) {
+        await batch.commit();
+      }
+
+      // Catat log audit
+      await adminDb.collection('admin_logs').add({
+        adminEmail: caller.email,
+        adminName: caller.nama || 'Super Admin',
+        action: 'HAPUS_SEMUA_RIWAYAT_ABSENSI',
+        target: 'Semua Riwayat Absensi',
+        details: `Menghapus seluruh ${count} data riwayat kehadiran karyawan`,
+        createdAt: new Date().toISOString(),
+      });
+
+      return NextResponse.json({
+        success: true,
+        deletedCount: count,
+        message: `Berhasil menghapus ${count} riwayat absensi.`,
+      });
+    }
+
+    // 2. Hapus Satu Data Absensi
+    if (!docId) {
+      return NextResponse.json(
+        { error: 'Parameter id absensi atau all=true wajib disertakan.' },
+        { status: 400 }
+      );
+    }
+
+    const docRef = adminDb.collection('attendance').doc(docId);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      return NextResponse.json(
+        { error: 'Data absensi tidak ditemukan.' },
+        { status: 404 }
+      );
+    }
+
+    const attData = docSnap.data();
+    await docRef.delete();
+
+    // Catat log audit
+    await adminDb.collection('admin_logs').add({
+      adminEmail: caller.email,
+      adminName: caller.nama || 'Admin',
+      action: 'HAPUS_RIWAYAT_ABSENSI',
+      target: attData?.karyawanNama || docId,
+      details: `Menghapus data absensi tanggal ${attData?.tanggal || '-'} untuk ${attData?.karyawanNama || docId}`,
+      createdAt: new Date().toISOString(),
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Data riwayat absensi berhasil dihapus.',
+    });
+  } catch (error: any) {
+    console.error('Error DELETE /api/attendance:', error);
+    return NextResponse.json(
+      { error: error.message || 'Gagal menghapus riwayat absensi.' },
+      { status: 500 }
+    );
+  }
+}

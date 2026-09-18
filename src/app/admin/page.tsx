@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import dynamic from "next/dynamic";
 import CustomSelect from "@/components/CustomSelect";
-import { subscribeToRequests, updateRequestStatus, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs, subscribeToPositions, addPosition, DEFAULT_POSITIONS, PositionItem, checkAdminRole, subscribeToAdmins, AdminAccount, SuratPeringatan, subscribeToSuratPeringatan, addSuratPeringatan, updateSuratPeringatan, deleteSuratPeringatan } from "@/lib/db";
+import { subscribeToRequests, updateRequestStatus, deleteRequest, deleteAllRequestHistory, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs, subscribeToPositions, addPosition, DEFAULT_POSITIONS, PositionItem, checkAdminRole, subscribeToAdmins, AdminAccount, SuratPeringatan, subscribeToSuratPeringatan, addSuratPeringatan, updateSuratPeringatan, deleteSuratPeringatan } from "@/lib/db";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
@@ -576,6 +576,10 @@ export default function AdminDesktopPage() {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedPengajuan, setSelectedPengajuan] = useState<any>(null);
   const [pengajuanTab, setPengajuanTab] = useState<"antrean" | "revisi" | "riwayat">("antrean");
+  const [isDeleteAllPengajuanModalOpen, setIsDeleteAllPengajuanModalOpen] = useState(false);
+  const [isDeleteSinglePengajuanModalOpen, setIsDeleteSinglePengajuanModalOpen] = useState(false);
+  const [pengajuanToDelete, setPengajuanToDelete] = useState<any>(null);
+  const [isDeletingPengajuan, setIsDeletingPengajuan] = useState(false);
 
   // Surat Peringatan (SP) State
   const [spList, setSpList] = useState<SuratPeringatan[]>([]);
@@ -1061,6 +1065,62 @@ export default function AdminDesktopPage() {
       target: req?.namaKaryawan || rejectId,
       details: `Mengembalikan permohonan ${req?.type || 'Izin/Cuti'} dengan catatan: "${rejectReason}"`
     });
+  };
+
+  const handleDeleteSinglePengajuan = async () => {
+    if (!pengajuanToDelete) return;
+    setIsDeletingPengajuan(true);
+    try {
+      const res = await deleteRequest(pengajuanToDelete.id);
+      if (res) {
+        setPengajuanList(prev => prev.filter(p => p.id !== pengajuanToDelete.id));
+        showToast("Riwayat pengajuan berhasil dihapus.");
+        logAdminActivity({
+          adminEmail: currentAdminEmail,
+          adminName: currentAdminName,
+          action: "HAPUS_RIWAYAT_PENGAJUAN",
+          target: pengajuanToDelete.karyawanNama || pengajuanToDelete.id,
+          details: `Menghapus riwayat permohonan ${pengajuanToDelete.type || 'Izin/Cuti'} untuk ${pengajuanToDelete.karyawanNama || pengajuanToDelete.id}`
+        });
+        setIsDeleteSinglePengajuanModalOpen(false);
+        setPengajuanToDelete(null);
+      } else {
+        showToast("Gagal menghapus riwayat pengajuan.");
+      }
+    } catch (err: any) {
+      showToast(err.message || "Gagal menghapus riwayat pengajuan.");
+    } finally {
+      setIsDeletingPengajuan(false);
+    }
+  };
+
+  const handleDeleteAllPengajuan = async () => {
+    if (!isSuperAdmin) {
+      showToast("Hanya Super Admin yang berhak menghapus semua riwayat.");
+      return;
+    }
+    setIsDeletingPengajuan(true);
+    try {
+      const res = await deleteAllRequestHistory();
+      if (res && res.success) {
+        setPengajuanList(prev => prev.filter(p => p.status === "Menunggu" || p.status === "Revisi"));
+        showToast(`Berhasil menghapus seluruh riwayat pengajuan selesai (${res.count || 0} data).`);
+        logAdminActivity({
+          adminEmail: currentAdminEmail,
+          adminName: currentAdminName,
+          action: "HAPUS_SEMUA_RIWAYAT_PENGAJUAN",
+          target: "Semua Riwayat Selesai",
+          details: `Super Admin menghapus seluruh ${res.count || 0} data riwayat pengajuan yang telah selesai`
+        });
+        setIsDeleteAllPengajuanModalOpen(false);
+      } else {
+        showToast((res && res.error) || "Gagal menghapus semua riwayat pengajuan.");
+      }
+    } catch (err: any) {
+      showToast(err.message || "Gagal menghapus semua riwayat pengajuan.");
+    } finally {
+      setIsDeletingPengajuan(false);
+    }
   };
 
   const handleExportExcel = (karyawanToExport?: Karyawan | null) => {
@@ -2576,9 +2636,22 @@ export default function AdminDesktopPage() {
                   </span>
                 )}
                 {pengajuanTab === "riwayat" && (
-                  <span className="bg-gray-100 text-gray-600 text-xs font-bold px-4 py-2 rounded-full shadow-sm border border-gray-200">
-                    {pengajuanList.filter(p => p.status !== "Menunggu" && p.status !== "Revisi").length} Selesai Diproses
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="bg-gray-100 text-gray-600 text-xs font-bold px-4 py-2 rounded-full shadow-sm border border-gray-200">
+                      {pengajuanList.filter(p => p.status !== "Menunggu" && p.status !== "Revisi").length} Selesai Diproses
+                    </span>
+                    {isSuperAdmin && pengajuanList.filter(p => p.status !== "Menunggu" && p.status !== "Revisi").length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setIsDeleteAllPengajuanModalOpen(true)}
+                        className="px-3.5 py-2 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-200 hover:border-red-600 text-xs font-bold rounded-full transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
+                        title="Hapus Seluruh Riwayat Pengajuan Selesai (Khusus Super Admin)"
+                      >
+                        <i className="fa-solid fa-trash-can text-xs"></i>
+                        <span>Hapus Semua Riwayat</span>
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               
@@ -2876,15 +2949,30 @@ export default function AdminDesktopPage() {
                               </td>
                               
                               <td className="px-6 py-5 bg-white rounded-r-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-r border-gray-100 group-hover:border-pilar-gold/40 transition-all text-right">
-                                <button 
-                                  onClick={() => {
-                                    setSelectedPengajuan(pengajuan);
-                                    setDetailModalOpen(true);
-                                  }}
-                                  className="inline-flex items-center justify-center px-6 py-2.5 bg-pilar-darker hover:bg-black text-pilar-gold font-bold rounded-xl text-sm transition-all shadow-md hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20"
-                                >
-                                  <span>Cek Detail</span>
-                                </button>
+                                <div className="inline-flex items-center gap-2">
+                                  <button 
+                                    onClick={() => {
+                                      setSelectedPengajuan(pengajuan);
+                                      setDetailModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center justify-center px-6 py-2.5 bg-pilar-darker hover:bg-black text-pilar-gold font-bold rounded-xl text-sm transition-all shadow-md hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20"
+                                  >
+                                    <span>Cek Detail</span>
+                                  </button>
+                                  {isSuperAdmin && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPengajuanToDelete(pengajuan);
+                                        setIsDeleteSinglePengajuanModalOpen(true);
+                                      }}
+                                      className="w-10 h-10 rounded-xl bg-red-50 hover:bg-red-600 text-red-500 hover:text-white border border-red-200 hover:border-red-600 flex items-center justify-center transition-all shadow-sm cursor-pointer"
+                                      title="Hapus Riwayat Ini (Khusus Super Admin)"
+                                    >
+                                      <i className="fa-solid fa-trash-can text-sm"></i>
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -6134,6 +6222,109 @@ export default function AdminDesktopPage() {
               >
                 <i className="fa-solid fa-trash-can text-sm"></i>
                 <span>Ya, Hapus SP</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: KONFIRMASI HAPUS 1 RIWAYAT PENGAJUAN (SUPER ADMIN) */}
+      {isDeleteSinglePengajuanModalOpen && pengajuanToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden border border-gray-100 animate-in zoom-in-95 duration-200 p-8 text-center relative">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+
+            <div className="w-16 h-16 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-4 text-2xl shadow-inner border border-red-100 relative z-10">
+              <i className="fa-solid fa-trash-can"></i>
+            </div>
+            <h3 className="font-extrabold text-gray-900 text-xl tracking-tight mb-2 relative z-10">Hapus Riwayat Pengajuan?</h3>
+            <p className="text-gray-500 text-sm leading-relaxed mb-6 relative z-10">
+              Apakah Anda yakin ingin menghapus riwayat pengajuan <strong className="text-gray-900 font-bold">{pengajuanToDelete.type}</strong> milik <strong className="text-gray-900 font-bold">{pengajuanToDelete.karyawanNama}</strong> tanggal {pengajuanToDelete.startDate}?
+            </p>
+
+            <div className="flex items-center justify-center gap-3 relative z-10">
+              <button
+                type="button"
+                disabled={isDeletingPengajuan}
+                onClick={() => {
+                  setIsDeleteSinglePengajuanModalOpen(false);
+                  setPengajuanToDelete(null);
+                }}
+                className="flex-1 py-3 px-4 rounded-xl border border-gray-200 text-gray-700 text-sm font-bold hover:bg-gray-50 transition-all cursor-pointer disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingPengajuan}
+                onClick={handleDeleteSinglePengajuan}
+                className="flex-1 py-3 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold shadow-md hover:shadow-lg focus:ring-4 focus:ring-red-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isDeletingPengajuan ? (
+                  <>
+                    <i className="fa-solid fa-circle-notch fa-spin text-sm"></i>
+                    <span>Menghapus...</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-trash-can text-sm"></i>
+                    <span>Ya, Hapus</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: KONFIRMASI HAPUS SEMUA RIWAYAT PENGAJUAN (SUPER ADMIN) */}
+      {isDeleteAllPengajuanModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100 animate-in zoom-in-95 duration-200 p-8 text-center relative">
+            <div className="absolute top-0 right-0 w-36 h-36 bg-red-500/15 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+
+            <div className="w-16 h-16 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto mb-4 text-2xl shadow-inner border border-red-200 relative z-10 animate-bounce">
+              <i className="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <h3 className="font-extrabold text-gray-900 text-2xl tracking-tight mb-2 relative z-10">Hapus Seluruh Riwayat Pengajuan?</h3>
+            <p className="text-gray-600 text-sm leading-relaxed mb-3 relative z-10">
+              Tindakan ini <strong>bersifat permanen</strong> dan hanya dapat dilakukan oleh <strong>Super Admin</strong>.
+            </p>
+            <div className="bg-red-50/70 border border-red-200/80 rounded-2xl p-4 text-left text-xs text-red-800 space-y-1.5 mb-6 relative z-10">
+              <div className="flex items-center gap-2 font-bold text-red-900">
+                <i className="fa-solid fa-circle-info text-red-600"></i>
+                <span>Ketentuan Pembersihan Data:</span>
+              </div>
+              <p>• Seluruh arsip pengajuan yang telah <strong>Disetujui</strong> maupun <strong>Ditolak</strong> ({pengajuanList.filter(p => p.status !== "Menunggu" && p.status !== "Revisi").length} data) akan dihapus secara permanen dari server database.</p>
+              <p>• Pengajuan yang berstatus <strong>Menunggu Persetujuan</strong> dan <strong>Menunggu Revisi</strong> TIDAK akan terhapus agar alur persetujuan tetap berjalan normal.</p>
+            </div>
+
+            <div className="flex items-center justify-center gap-3 relative z-10">
+              <button
+                type="button"
+                disabled={isDeletingPengajuan}
+                onClick={() => setIsDeleteAllPengajuanModalOpen(false)}
+                className="flex-1 py-3.5 px-5 rounded-xl border border-gray-200 text-gray-700 text-sm font-bold hover:bg-gray-50 transition-all cursor-pointer disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingPengajuan}
+                onClick={handleDeleteAllPengajuan}
+                className="flex-1 py-3.5 px-5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold shadow-lg shadow-red-500/25 hover:shadow-xl focus:ring-4 focus:ring-red-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isDeletingPengajuan ? (
+                  <>
+                    <i className="fa-solid fa-circle-notch fa-spin text-sm"></i>
+                    <span>Membersihkan...</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-trash-can text-sm"></i>
+                    <span>Ya, Hapus Semua</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

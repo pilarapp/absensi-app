@@ -165,3 +165,107 @@ export async function POST(req: Request) {
     );
   }
 }
+
+/**
+ * DELETE /api/requests
+ * Menghapus satu atau semua riwayat pengajuan selesai (Khusus Super Admin untuk all=true)
+ */
+export async function DELETE(req: Request) {
+  try {
+    const caller = await verifyCaller(req);
+    if (!caller || !caller.isAdmin) {
+      return NextResponse.json(
+        { error: 'Akses Ditolak: Hanya Admin / Super Admin yang berhak menghapus riwayat.' },
+        { status: 403 }
+      );
+    }
+
+    const { searchParams } = new URL(req.url);
+    const requestId = searchParams.get('id');
+    const deleteAll = searchParams.get('all') === 'true';
+
+    // 1. Hapus Semua Riwayat Selesai (Hanya Super Admin)
+    if (deleteAll) {
+      if (!caller.isSuperAdmin) {
+        return NextResponse.json(
+          { error: 'Akses Ditolak: Hanya Super Admin yang berhak menghapus semua riwayat pengajuan.' },
+          { status: 403 }
+        );
+      }
+
+      const snapshot = await adminDb.collection('requests').get();
+      const batch = adminDb.batch();
+      let count = 0;
+
+      snapshot.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        // Hanya hapus yang sudah selesai (bukan Menunggu dan bukan Revisi)
+        if (data.status !== 'Menunggu' && data.status !== 'Revisi') {
+          batch.delete(docSnap.ref);
+          count++;
+        }
+      });
+
+      if (count > 0) {
+        await batch.commit();
+      }
+
+      // Catat log aktivitas admin
+      await adminDb.collection('admin_logs').add({
+        adminEmail: caller.email,
+        adminName: caller.nama || 'Super Admin',
+        action: 'HAPUS_SEMUA_RIWAYAT_PENGAJUAN',
+        target: 'Semua Pengajuan Selesai',
+        details: `Menghapus seluruh ${count} data riwayat pengajuan yang telah selesai`,
+        createdAt: new Date().toISOString(),
+      });
+
+      return NextResponse.json({
+        success: true,
+        deletedCount: count,
+        message: `Berhasil menghapus ${count} riwayat pengajuan selesai.`,
+      });
+    }
+
+    // 2. Hapus Satu Pengajuan Tertentu
+    if (!requestId) {
+      return NextResponse.json(
+        { error: 'Parameter id pengajuan atau all=true wajib disertakan.' },
+        { status: 400 }
+      );
+    }
+
+    const docRef = adminDb.collection('requests').doc(requestId);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      return NextResponse.json(
+        { error: 'Pengajuan tidak ditemukan.' },
+        { status: 404 }
+      );
+    }
+
+    const docData = docSnap.data();
+    await docRef.delete();
+
+    // Catat log aktivitas admin
+    await adminDb.collection('admin_logs').add({
+      adminEmail: caller.email,
+      adminName: caller.nama || 'Admin',
+      action: 'HAPUS_RIWAYAT_PENGAJUAN',
+      target: docData?.karyawanNama || requestId,
+      details: `Menghapus 1 data riwayat pengajuan ${docData?.type || ''} untuk ${docData?.karyawanNama || requestId}`,
+      createdAt: new Date().toISOString(),
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Riwayat pengajuan berhasil dihapus.',
+    });
+  } catch (error: any) {
+    console.error('Error DELETE /api/requests:', error);
+    return NextResponse.json(
+      { error: error.message || 'Gagal menghapus riwayat pengajuan.' },
+      { status: 500 }
+    );
+  }
+}
