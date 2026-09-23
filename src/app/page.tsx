@@ -359,7 +359,7 @@ export default function EmployeeDashboard() {
           // 1. Coba lewat API backend server terlebih dahulu
           try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 6000);
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
             const res = await fetch("/api/attendance", {
               method: "POST",
               headers: {
@@ -505,7 +505,7 @@ export default function EmployeeDashboard() {
           // 1. Coba lewat API backend
           try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 6000);
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
             const res = await fetch("/api/attendance", {
               method: "PUT",
               headers: {
