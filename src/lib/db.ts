@@ -163,11 +163,22 @@ export const deleteAttendance = async (docId: string) => {
 };
 
 export const getEmployee = async (uid: string) => {
-  if (!db) return null;
+  if (!db || !uid) return null;
   try {
     const docSnap = await getDoc(doc(db, "employees", uid));
     if (docSnap.exists()) {
       return { id: docSnap.id, ...docSnap.data() } as any;
+    }
+
+    // Fallback: jika doc ID di Firestore berbeda dengan Auth UID, cari berdasarkan email user aktif
+    const { auth } = await import("@/lib/firebase");
+    const currentEmail = auth?.currentUser?.email;
+    if (currentEmail) {
+      const q = query(collection(db, "employees"), where("email", "==", currentEmail.toLowerCase()));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        return { id: snap.docs[0].id, ...snap.docs[0].data() } as any;
+      }
     }
     return null;
   } catch (err) {

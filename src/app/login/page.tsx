@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -15,6 +16,13 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
+
+  // Bersihkan sisa sesi lama jika di halaman login tanpa user aktif
+  useEffect(() => {
+    if (auth && !auth.currentUser) {
+      document.cookie = "pilar_employee_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    }
+  }, []);
 
   const validateEmail = (val: string) => {
     if (!val) return "Email wajib diisi";
@@ -63,126 +71,118 @@ export default function LoginPage() {
     }
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const idToken = await userCredential.user.getIdToken();
+      const trimmedEmail = email.trim().toLowerCase();
+      // 1. Otentikasi langsung via Firebase Client SDK
+      const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, password);
+      const user = userCredential.user;
+      const uid = user.uid;
+      const idToken = await user.getIdToken();
 
-      let roleData: any = null;
+      let employeeData: any = null;
 
-      // 1. Coba verifikasi peran melalui server endpoint
-      try {
-        const res = await fetch('/api/auth/verify-role', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken }),
-        });
-
-        const resText = await res.text();
-        if (resText) {
-          try {
-            const parsed = JSON.parse(resText);
-            if (res.ok) {
-              roleData = parsed;
-            } else {
-              console.warn("verify-role endpoint response non-ok:", res.status, parsed);
-            }
-          } catch {
-            console.warn("verify-role response is not JSON:", resText.slice(0, 100));
-          }
-        }
-      } catch (networkOrJsonErr) {
-        console.warn("verify-role fetch gagal, mencoba fallback Firestore langsung:", networkOrJsonErr);
-      }
-
-      // 2. Fallback: Verifikasi langsung via Firebase Client Firestore jika serverless function Vercel bermasalah
-      if (!roleData) {
+      // 2. Cek langsung data karyawan di Firestore via Client SDK (sangat cepat ~50-100ms)
+      if (db) {
         try {
-          const { getDoc, doc, collection, query, where, getDocs } = await import("firebase/firestore");
-          const { db } = await import("@/lib/firebase");
-          if (db) {
-            // Cek di koleksi admins
-            const admDoc = await getDoc(doc(db, "admins", userCredential.user.uid));
-            if (admDoc.exists()) {
-              roleData = {
-                isAdmin: true,
-                isEmployee: false,
-                role: "admin"
-              };
-            } else {
-              // Cek di koleksi employees berdasarkan UID
-              const empDoc = await getDoc(doc(db, "employees", userCredential.user.uid));
-              if (empDoc.exists()) {
-                const empData = empDoc.data();
-                roleData = {
-                  isAdmin: false,
-                  isEmployee: true,
-                  employeeStatus: empData.status || "Aktif",
-                  role: "karyawan"
-                };
-              } else {
-                // Cek di koleksi employees berdasarkan email
-                const empQuery = await getDocs(query(collection(db, "employees"), where("email", "==", email.toLowerCase())));
-                if (!empQuery.empty) {
-                  const empData = empQuery.docs[0].data();
-                  roleData = {
-                    isAdmin: false,
-                    isEmployee: true,
-                    employeeStatus: empData.status || "Aktif",
-                    role: "karyawan"
-                  };
-                }
-              }
+          const empDoc = await getDoc(doc(db, "employees", uid));
+          if (empDoc.exists()) {
+            employeeData = { id: empDoc.id, ...empDoc.data() };
+          } else {
+            // Cek berdasarkan email
+            const empQuery = await getDocs(query(collection(db, "employees"), where("email", "==", trimmedEmail)));
+            if (!empQuery.empty) {
+              employeeData = { id: empQuery.docs[0].id, ...empQuery.docs[0].data() };
             }
           }
-        } catch (fallbackErr) {
-          console.error("Fallback verification error:", fallbackErr);
+        } catch (dbErr) {
+          console.warn("Client Firestore employee lookup notice:", dbErr);
         }
       }
 
-      if (!roleData) {
-        throw new Error("Gagal memverifikasi status akun. Pastikan koneksi internet stabil atau hubungi administrator.");
+      // 3. Fallback ke endpoint server jika client SDK belum dapat data
+      if (!employeeData) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3500);
+          const res = await fetch('/api/auth/verify-role', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken }),
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+          if (res.ok) {
+            const roleData = await res.json();
+            if (roleData.isAdmin) {
+              await auth.signOut();
+              setError("Akun ini terdaftar sebagai Administrator. Silakan login melalui portal Admin.");
+              setIsLoading(false);
+              return;
+            }
+            if (roleData.isEmployee) {
+              employeeData = {
+                id: uid,
+                status: roleData.employeeStatus || "Aktif",
+                nama: roleData.nama || "",
+                nik: roleData.nik || "",
+                email: trimmedEmail
+              };
+            }
+          }
+        } catch (serverErr) {
+          console.warn("Server verify-role fallback notice:", serverErr);
+        }
       }
 
-      if (roleData.isAdmin) {
-        await auth.signOut();
-        localStorage.removeItem("user_email");
-        localStorage.removeItem("pilar_logged_in");
-        sessionStorage.removeItem("pilar_session_checked");
-        sessionStorage.removeItem("pilar_cached_employee");
-        setError("Akun ini terdaftar sebagai Administrator. Silakan login melalui portal Admin.");
-        setIsLoading(false);
-        return;
-      }
+      // 4. Jika tetap tidak ditemukan di employees, periksa secara aman apakah akun ini admin
+      if (!employeeData) {
+        let isAdminAccount = trimmedEmail === 'pilarss@admin.com';
+        if (!isAdminAccount && db) {
+          try {
+            const admDoc = await getDoc(doc(db, "admins", uid));
+            if (admDoc.exists()) isAdminAccount = true;
+          } catch {
+            // Abaikan permission-denied jika bukan admin
+          }
+        }
 
-      if (!roleData.isEmployee) {
+        if (isAdminAccount) {
+          await auth.signOut();
+          setError("Akun ini terdaftar sebagai Administrator. Silakan login melalui portal Admin.");
+          setIsLoading(false);
+          return;
+        }
+
         await auth.signOut();
-        localStorage.removeItem("user_email");
-        localStorage.removeItem("pilar_logged_in");
         setError("Akun karyawan tidak ditemukan atau belum terdaftar.");
         setIsLoading(false);
         return;
       }
 
-      if (roleData.employeeStatus === 'Nonaktif') {
+      // 5. Cek status aktif karyawan
+      if (employeeData.status === 'Nonaktif') {
         await auth.signOut();
-        localStorage.removeItem("user_email");
-        localStorage.removeItem("pilar_logged_in");
         setError("Akun Anda berstatus Nonaktif. Silakan hubungi pihak HRD.");
         setIsLoading(false);
         return;
       }
 
-      // Set cookie session karyawan langsung di client
-      document.cookie = `pilar_employee_session=emp_${userCredential.user.uid}; path=/; max-age=604800; SameSite=Lax`;
+      // 6. Set cookie & storage secara instan (Zero latency)
+      document.cookie = `pilar_employee_session=emp_${uid}; path=/; max-age=604800; SameSite=Lax`;
       document.cookie = `pilar_admin_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 
-      // Set cookie session server di background
+      localStorage.setItem("user_email", trimmedEmail);
+      localStorage.setItem("pilar_logged_in", "true");
+      sessionStorage.setItem("pilar_session_checked", "true");
+      sessionStorage.setItem("pilar_cached_employee", JSON.stringify(employeeData));
+
+      // 7. Sinkronisasi sesi server di background (non-blocking)
       try {
         const syncController = new AbortController();
-        const syncTimeout = setTimeout(() => syncController.abort(), 2500);
+        const syncTimeout = setTimeout(() => syncController.abort(), 2000);
         await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken, role: 'karyawan', uid: userCredential.user.uid }),
+          body: JSON.stringify({ idToken, role: 'karyawan', uid }),
           signal: syncController.signal,
         });
         clearTimeout(syncTimeout);
@@ -190,18 +190,19 @@ export default function LoginPage() {
         console.warn("Notice set session cookie:", sessionErr);
       }
 
-      localStorage.setItem("user_email", email.trim().toLowerCase());
-      localStorage.setItem("pilar_logged_in", "true");
-      router.push("/");
+      // 8. Masuk ke dashboard karyawan
+      window.location.href = "/";
     } catch (err: any) {
+      console.error("Login karyawan error:", err);
       if (err.code === "auth/invalid-credential" || err.code === "auth/user-not-found" || err.code === "auth/wrong-password") {
         setError("Email atau kata sandi salah.");
       } else {
-        setError("Gagal login: " + err.message);
+        setError("Gagal login: " + (err.message || "Terjadi kesalahan."));
       }
       setIsLoading(false);
     }
   };
+
 
   return (
     <div className="mobile-container flex flex-col text-pilar-textPrimary mx-auto shadow-2xl relative overflow-hidden bg-pilar-dark">
