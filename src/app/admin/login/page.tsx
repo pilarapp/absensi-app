@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 export default function AdminLoginPage() {
   const [email, setEmail] = useState("");
@@ -15,6 +16,14 @@ export default function AdminLoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
+
+  // Bersihkan sisa sesi lama jika berada di halaman login tanpa user aktif
+  useEffect(() => {
+    if (auth && !auth.currentUser) {
+      document.cookie = "pilar_admin_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      document.cookie = "pilar_admin_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    }
+  }, []);
 
   const validateEmail = (val: string) => {
     if (!val) return "Email wajib diisi";
@@ -63,99 +72,116 @@ export default function AdminLoginPage() {
     }
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const idToken = await userCredential.user.getIdToken();
+      // 1. Otentikasi langsung via Firebase Client SDK (sangat cepat ~200ms)
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      const user = userCredential.user;
+      const uid = user.uid;
+      const idToken = await user.getIdToken();
 
-      let roleData: any = null;
+      let isAdmin = false;
+      let isSuperAdmin = email.trim().toLowerCase() === 'pilarss@admin.com';
+      let adminRole: "admin" | "superadmin" = isSuperAdmin ? "superadmin" : "admin";
+      let adminNama = "Administrator";
+      let adminNik = "";
 
-      // 1. Coba verifikasi peran melalui server endpoint
-      try {
-        const res = await fetch('/api/auth/verify-role', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken }),
-        });
-
-        const resText = await res.text();
-        if (resText) {
-          try {
-            const parsed = JSON.parse(resText);
-            if (res.ok) {
-              roleData = parsed;
-            } else {
-              console.warn("verify-role endpoint response non-ok:", res.status, parsed);
-            }
-          } catch {
-            console.warn("verify-role response is not JSON:", resText.slice(0, 100));
-          }
-        }
-      } catch (networkOrJsonErr) {
-        console.warn("verify-role fetch gagal, mencoba fallback Firestore langsung:", networkOrJsonErr);
-      }
-
-      // 2. Fallback: Verifikasi langsung via Firebase Client Firestore jika serverless function Vercel bermasalah
-      if (!roleData) {
+      // 2. Verifikasi instan melalui Firestore Client SDK (~50-100ms)
+      if (db) {
         try {
-          const { getDoc, doc } = await import("firebase/firestore");
-          const { db } = await import("@/lib/firebase");
-          if (db) {
-            const admDoc = await getDoc(doc(db, "admins", userCredential.user.uid));
-            if (admDoc.exists()) {
-              const admData = admDoc.data();
-              const isSuper = admData?.role === 'superadmin' || email.toLowerCase() === 'pilarss@admin.com';
-              roleData = {
-                isAdmin: true,
-                isSuperAdmin: isSuper,
-                adminRole: isSuper ? "superadmin" : "admin",
-                role: "admin",
-                nama: admData?.nama || "Administrator",
-                nik: admData?.nik || ""
-              };
+          const admDoc = await getDoc(doc(db, "admins", uid));
+          if (admDoc.exists()) {
+            isAdmin = true;
+            const admData = admDoc.data();
+            if (admData?.role === 'superadmin' || isSuperAdmin) {
+              isSuperAdmin = true;
+              adminRole = 'superadmin';
             }
+            if (admData?.nama) adminNama = admData.nama;
+            if (admData?.nik) adminNik = admData.nik;
           }
-        } catch (fallbackErr) {
-          console.error("Fallback admin verification error:", fallbackErr);
+        } catch (clientDocErr) {
+          console.warn("Client Firestore check notice:", clientDocErr);
         }
       }
 
-      if (!roleData || !roleData.isAdmin) {
+      // 3. Fallback: jika client check belum ketemu (misal rules), coba panggil server verify-role
+      if (!isAdmin) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 4000);
+          const res = await fetch('/api/auth/verify-role', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          if (res.ok) {
+            const parsed = await res.json();
+            if (parsed.isAdmin) {
+              isAdmin = true;
+              isSuperAdmin = !!parsed.isSuperAdmin;
+              adminRole = parsed.adminRole || (isSuperAdmin ? "superadmin" : "admin");
+              if (parsed.nama) adminNama = parsed.nama;
+              if (parsed.nik) adminNik = parsed.nik;
+            }
+          }
+        } catch (serverErr) {
+          console.warn("Server verify-role notice:", serverErr);
+        }
+      }
+
+      // 4. Jika bukan admin, tolak akses dan bersihkan sesi
+      if (!isAdmin) {
         await auth.signOut();
         localStorage.removeItem("admin_email");
         localStorage.removeItem("admin_role");
         localStorage.removeItem("admin_name");
         localStorage.removeItem("admin_nik");
+        document.cookie = "pilar_admin_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+        document.cookie = "pilar_admin_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
         setError("Akses Ditolak: Akun Anda bukan Administrator.");
         setIsLoading(false);
         return;
       }
 
-      const assignedAdminRole = roleData.adminRole || (roleData.isSuperAdmin ? 'superadmin' : 'admin');
+      // 5. SET COOKIE CLIENT & LOCALSTORAGE INSTAN
+      // Memastikan Next.js Middleware di Vercel LANGSUNG mengizinkan request ke /admin
+      document.cookie = `pilar_admin_session=adm_${uid}; path=/; max-age=604800; SameSite=Lax`;
+      document.cookie = `pilar_admin_role=${adminRole}; path=/; max-age=604800; SameSite=Lax`;
 
-      // Set cookie session admin untuk Next.js Middleware
+      localStorage.setItem("admin_email", email.trim().toLowerCase());
+      localStorage.setItem("admin_role", adminRole);
+      localStorage.setItem("admin_name", adminNama);
+      localStorage.setItem("admin_nik", adminNik);
+
+      // 6. Sinkronisasi sesi server secara non-blocking di background (timeout 2.5s)
       try {
+        const syncController = new AbortController();
+        const syncTimeout = setTimeout(() => syncController.abort(), 2500);
         await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken, role: 'admin', adminRole: assignedAdminRole }),
+          body: JSON.stringify({ idToken, role: 'admin', adminRole, uid }),
+          signal: syncController.signal,
         });
+        clearTimeout(syncTimeout);
       } catch (sessionErr) {
-        console.warn("Gagal set admin session cookie:", sessionErr);
+        console.warn("Session server sync notice:", sessionErr);
       }
 
-      localStorage.setItem("admin_email", email);
-      localStorage.setItem("admin_role", assignedAdminRole);
-      if (roleData.nama) localStorage.setItem("admin_name", roleData.nama);
-      if (roleData.nik) localStorage.setItem("admin_nik", roleData.nik);
-      router.push("/admin");
+      // 7. Navigasi langsung ke /admin (jaminan header cookie terkirim sempurna)
+      window.location.href = "/admin";
     } catch (err: any) {
+      console.error("Login admin error:", err);
       if (err.code === "auth/invalid-credential" || err.code === "auth/user-not-found" || err.code === "auth/wrong-password") {
         setError("Email atau kata sandi salah.");
       } else {
-        setError("Gagal login: " + err.message);
+        setError("Gagal login: " + (err.message || "Terjadi kesalahan."));
       }
       setIsLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen w-full bg-pilar-darker flex items-center justify-center p-4 font-sans relative overflow-hidden">

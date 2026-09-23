@@ -16,12 +16,24 @@ function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2:
   return R * c;
 }
 
-// Jam dan Tanggal Server WIB (Asia/Jakarta)
-function getJakartaDateTime() {
+// Jam dan Tanggal Server Dinamis (Sesuai Pengaturan Zona Waktu Perusahaan: WIB, WITA, WIT, JST)
+async function getCompanyTimezone(): Promise<string> {
+  try {
+    const snap = await adminDb.collection('settings').doc('company_settings').get();
+    if (snap.exists && snap.data()?.timezone) {
+      return snap.data()?.timezone;
+    }
+  } catch (e) {
+    console.warn("Gagal membaca timezone dari settings:", e);
+  }
+  return process.env.APP_TIMEZONE || 'Asia/Tokyo';
+}
+
+function getAppDateTime(timeZone: string = 'Asia/Tokyo') {
   const now = new Date();
   
   const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Jakarta',
+    timeZone,
     year: 'numeric',
     month: 'numeric',
     day: 'numeric',
@@ -37,14 +49,19 @@ function getJakartaDateTime() {
   const possibleDates = Array.from(new Set([formatShort, formatPadded, formatIso, now.toLocaleDateString('id-ID')]));
 
   const timeFormatter = new Intl.DateTimeFormat('id-ID', {
-    timeZone: 'Asia/Jakarta',
+    timeZone,
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
   });
   const timeString = timeFormatter.format(now).replace('.', ':');
 
-  return { now, tanggal: formatShort, possibleDates, timeString };
+  let code = "WIB";
+  if (timeZone === "Asia/Tokyo") code = "JST";
+  else if (timeZone === "Asia/Jayapura") code = "WIT";
+  else if (timeZone === "Asia/Makassar") code = "WITA";
+
+  return { now, tanggal: formatShort, possibleDates, timeString, timezone: timeZone, timezoneCode: code };
 }
 
 // POST: Absen Masuk
@@ -116,7 +133,8 @@ export async function POST(req: Request) {
     }
 
     // 3. Waktu Server & Keterlambatan
-    const { tanggal, possibleDates, timeString } = getJakartaDateTime();
+    const appTimezone = await getCompanyTimezone();
+    const { tanggal, possibleDates, timeString, timezoneCode } = getAppDateTime(appTimezone);
 
     // Cek apakah sudah pernah absen masuk hari ini
     const existingCheck = await adminDb.collection('attendance')
@@ -160,8 +178,10 @@ export async function POST(req: Request) {
       docId: docRef.id,
       tanggal,
       timeCheckin: timeString,
-      status: newAttendance.status,
-      message: isTerlambat ? `Absen masuk berhasil (Terlambat: ${timeString})` : `Absen masuk berhasil (${timeString})`
+      status,
+      timezone: appTimezone,
+      timezoneCode,
+      message: isTerlambat ? `Absen masuk berhasil (Terlambat: ${timeString} ${timezoneCode})` : `Absen masuk berhasil (${timeString} ${timezoneCode})`
     });
 
   } catch (error: any) {
@@ -188,13 +208,14 @@ export async function PUT(req: Request) {
     const empDoc = await adminDb.collection('employees').doc(caller.uid).get();
     const empData = empDoc.exists ? empDoc.data() : null;
 
-    const { tanggal, possibleDates, timeString } = getJakartaDateTime();
+    const appTimezone = await getCompanyTimezone();
+    const { tanggal, possibleDates, timeString, timezoneCode } = getAppDateTime(appTimezone);
 
     // 1. Cek Batas Jam Pulang
     const batasKeluar = empData?.shiftKeluar || '17:00';
     if (timeString < batasKeluar) {
       return NextResponse.json({
-        error: `Belum masuk waktu pulang (Jadwal pulang shift Anda: ${batasKeluar}, jam server saat ini: ${timeString}).`
+        error: `Belum masuk waktu pulang (Jadwal pulang shift Anda: ${batasKeluar}, jam server saat ini: ${timeString} ${timezoneCode}).`
       }, { status: 400 });
     }
 
@@ -227,7 +248,9 @@ export async function PUT(req: Request) {
       docId: targetDocId,
       tanggal,
       timeCheckout: timeString,
-      message: `Berhasil absen pulang pada pukul ${timeString}`
+      timezone: appTimezone,
+      timezoneCode,
+      message: `Berhasil absen pulang pada pukul ${timeString} ${timezoneCode}`
     });
 
   } catch (error: any) {

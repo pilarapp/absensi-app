@@ -2,18 +2,29 @@ import { initializeApp, getApps, cert, App } from "firebase-admin/app";
 import { getAuth, Auth } from "firebase-admin/auth";
 import { getFirestore, Firestore } from "firebase-admin/firestore";
 
-function formatPrivateKey(key?: string) {
+let cachedApp: App | null = null;
+let cachedAuth: Auth | null = null;
+let cachedDb: Firestore | null = null;
+
+export function formatPrivateKey(key?: string) {
   if (!key) return undefined;
+  let cleanKey = key.trim();
   // Hapus kutip di awal dan akhir jika tidak sengaja ter-copy di Vercel
-  let cleanKey = key.trim().replace(/^["']|["']$/g, '');
+  if ((cleanKey.startsWith('"') && cleanKey.endsWith('"')) || (cleanKey.startsWith("'") && cleanKey.endsWith("'"))) {
+    cleanKey = cleanKey.slice(1, -1).trim();
+  }
+  // Normalisasi carriage return (\r)
+  cleanKey = cleanKey.replace(/\r/g, '');
   // Konversi literal \n menjadi newline asli
   cleanKey = cleanKey.replace(/\\n/g, '\n');
   return cleanKey;
 }
 
-function getAdminApp(): App {
+export function getAdminApp(): App {
+  if (cachedApp) return cachedApp;
   if (getApps().length > 0) {
-    return getApps()[0];
+    cachedApp = getApps()[0];
+    return cachedApp;
   }
 
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID;
@@ -27,35 +38,41 @@ function getAdminApp(): App {
     );
   }
 
-  return initializeApp({
+  cachedApp = initializeApp({
     credential: cert({
       projectId,
       clientEmail,
       privateKey,
     }),
   });
+  return cachedApp;
 }
 
 // Proxy wrapper agar getAuth() & getFirestore() hanya dipanggil saat rute API dieksekusi,
 // sehingga tidak menyebabkan crash fatal saat module load di serverless Vercel jika env belum lengkap.
 export const adminAuth = new Proxy({} as Auth, {
   get(_, prop: string) {
-    const app = getAdminApp();
-    const auth = getAuth(app);
-    const value = (auth as any)[prop];
-    return typeof value === "function" ? value.bind(auth) : value;
+    if (!cachedAuth) {
+      const app = getAdminApp();
+      cachedAuth = getAuth(app);
+    }
+    const value = (cachedAuth as any)[prop];
+    return typeof value === "function" ? value.bind(cachedAuth) : value;
   }
 });
 
 export const adminDb = new Proxy({} as Firestore, {
   get(_, prop: string) {
-    const app = getAdminApp();
-    const db = getFirestore(app);
-    try {
-      db.settings({ ignoreUndefinedProperties: true });
-    } catch (e) {}
-    const value = (db as any)[prop];
-    return typeof value === "function" ? value.bind(db) : value;
+    if (!cachedDb) {
+      const app = getAdminApp();
+      cachedDb = getFirestore(app);
+      try {
+        cachedDb.settings({ ignoreUndefinedProperties: true });
+      } catch (e) {}
+    }
+    const value = (cachedDb as any)[prop];
+    return typeof value === "function" ? value.bind(cachedDb) : value;
   }
 });
+
 

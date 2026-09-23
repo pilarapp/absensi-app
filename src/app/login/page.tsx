@@ -171,18 +171,26 @@ export default function LoginPage() {
         return;
       }
 
-      // Set cookie session karyawan
+      // Set cookie session karyawan langsung di client
+      document.cookie = `pilar_employee_session=emp_${userCredential.user.uid}; path=/; max-age=604800; SameSite=Lax`;
+      document.cookie = `pilar_admin_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+
+      // Set cookie session server di background
       try {
+        const syncController = new AbortController();
+        const syncTimeout = setTimeout(() => syncController.abort(), 2500);
         await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken, role: 'karyawan' }),
+          body: JSON.stringify({ idToken, role: 'karyawan', uid: userCredential.user.uid }),
+          signal: syncController.signal,
         });
+        clearTimeout(syncTimeout);
       } catch (sessionErr) {
-        console.warn("Gagal set session cookie:", sessionErr);
+        console.warn("Notice set session cookie:", sessionErr);
       }
 
-      localStorage.setItem("user_email", email);
+      localStorage.setItem("user_email", email.trim().toLowerCase());
       localStorage.setItem("pilar_logged_in", "true");
       router.push("/");
     } catch (err: any) {

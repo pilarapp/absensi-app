@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { recordCheckIn, recordCheckOut, getTodayAttendance, getEmployee, getEmployeeAttendance, getEmployeeRequests } from '@/lib/db';
+import { recordCheckIn, recordCheckOut, getTodayAttendance, getEmployee, getEmployeeAttendance, getEmployeeRequests, subscribeToCompanySettings } from '@/lib/db';
 import NotificationBell from '@/components/NotificationBell';
 import Toast from '@/components/Toast';
 
@@ -38,6 +38,8 @@ export default function EmployeeDashboard() {
 
   const [currentTime, setCurrentTime] = useState("");
   const [currentDate, setCurrentDate] = useState("");
+  const [appTimezone, setAppTimezone] = useState("Asia/Tokyo");
+  const [appTimezoneCode, setAppTimezoneCode] = useState("JST");
   const [timeCheckin, setTimeCheckin] = useState("--:--");
   const [timeCheckout, setTimeCheckout] = useState("--:--");
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
@@ -62,25 +64,40 @@ export default function EmployeeDashboard() {
   const isDateToday = (dateStr?: string): boolean => {
     if (!dateStr) return false;
     const now = new Date();
-    const d = now.getDate();
-    const m = now.getMonth() + 1;
-    const y = now.getFullYear();
-
-    const candidates = [
-      `${d}/${m}/${y}`,
-      `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`,
-      `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
-      now.toLocaleDateString("id-ID")
-    ];
-    if (candidates.includes(dateStr.trim())) return true;
-
     try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: appTimezone,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+      }).formatToParts(now);
+      const d = parseInt(parts.find(p => p.type === 'day')!.value, 10);
+      const m = parseInt(parts.find(p => p.type === 'month')!.value, 10);
+      const y = parseInt(parts.find(p => p.type === 'year')!.value, 10);
+
+      const candidates = [
+        `${d}/${m}/${y}`,
+        `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`,
+        `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
+        now.toLocaleDateString("id-ID")
+      ];
+      if (candidates.includes(dateStr.trim())) return true;
       const clean = dateStr.replace(/-/g, '/').split('/').map(p => parseInt(p, 10)).filter(n => !isNaN(n));
       return clean.includes(d) && clean.includes(m) && clean.includes(y);
     } catch {
       return false;
     }
   };
+
+  useEffect(() => {
+    const unsub = subscribeToCompanySettings((settings) => {
+      if (settings?.timezone) {
+        setAppTimezone(settings.timezone);
+        setAppTimezoneCode(settings.timezoneCode || "JST");
+      }
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -289,8 +306,13 @@ export default function EmployeeDashboard() {
 
     const updateClock = () => {
       const now = new Date();
-      setCurrentTime(now.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }));
-      setCurrentDate(now.toLocaleDateString("id-ID", { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+      try {
+        setCurrentTime(now.toLocaleTimeString("id-ID", { timeZone: appTimezone, hour: '2-digit', minute: '2-digit' }));
+        setCurrentDate(now.toLocaleDateString("id-ID", { timeZone: appTimezone, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+      } catch (e) {
+        setCurrentTime(now.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }));
+        setCurrentDate(now.toLocaleDateString("id-ID", { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+      }
     };
     updateClock();
     timer = setInterval(updateClock, 1000);
@@ -299,7 +321,7 @@ export default function EmployeeDashboard() {
       if (timer) clearInterval(timer);
       unsubscribeAuth();
     };
-  }, []);
+  }, [appTimezone]);
 
   const handleResetTesting = () => {
     localStorage.removeItem("pilar_today_attendance");
@@ -468,8 +490,9 @@ export default function EmployeeDashboard() {
       <header className="pt-10 pb-6 px-6 bg-pilar-darker rounded-b-3xl shadow-md z-10 relative">
         <div className="flex justify-between items-center">
           <div className="flex flex-col items-start">
-            <div className="text-2xl font-bold font-heading text-pilar-gold drop-shadow-md leading-none">
-              {currentTime}
+            <div className="text-2xl font-bold font-heading text-pilar-gold drop-shadow-md leading-none flex items-baseline gap-1.5">
+              <span>{currentTime}</span>
+              <span className="text-[11px] font-black text-pilar-gold px-1.5 py-0.5 rounded bg-white/10 border border-white/10">{appTimezoneCode}</span>
             </div>
             <div className="text-xs text-pilar-textSecondary font-medium mt-1">
               {currentDate}

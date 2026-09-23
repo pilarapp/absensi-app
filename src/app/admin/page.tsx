@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import dynamic from "next/dynamic";
 import CustomSelect from "@/components/CustomSelect";
-import { subscribeToRequests, updateRequestStatus, deleteRequest, deleteAllRequestHistory, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs, subscribeToPositions, addPosition, DEFAULT_POSITIONS, PositionItem, checkAdminRole, subscribeToAdmins, AdminAccount, SuratPeringatan, subscribeToSuratPeringatan, addSuratPeringatan, updateSuratPeringatan, deleteSuratPeringatan } from "@/lib/db";
+import { subscribeToRequests, updateRequestStatus, deleteRequest, deleteAllRequestHistory, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs, subscribeToPositions, addPosition, DEFAULT_POSITIONS, PositionItem, checkAdminRole, subscribeToAdmins, AdminAccount, SuratPeringatan, subscribeToSuratPeringatan, addSuratPeringatan, updateSuratPeringatan, deleteSuratPeringatan, TIMEZONE_OPTIONS, DEFAULT_COMPANY_SETTINGS, CompanySettings, updateCompanySettings, subscribeToCompanySettings } from "@/lib/db";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
@@ -128,7 +128,7 @@ export default function AdminDesktopPage() {
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [auditSearch, setAuditSearch] = useState<string>("");
   const [auditFilterAction, setAuditFilterAction] = useState<string>("all");
-  const [pengaturanSubTab, setPengaturanSubTab] = useState<"lokasi" | "audit" | "admins">("lokasi");
+  const [pengaturanSubTab, setPengaturanSubTab] = useState<"lokasi" | "waktu" | "audit" | "admins">("lokasi");
   const [karyawanSubTab, setKaryawanSubTab] = useState<"karyawan" | "sp">("karyawan");
 
   // State Modal & Form Manajemen Admin
@@ -227,6 +227,8 @@ export default function AdminDesktopPage() {
     try {
       await fetch('/api/auth/session', { method: 'DELETE' });
     } catch {}
+    document.cookie = "pilar_admin_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    document.cookie = "pilar_admin_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
     localStorage.removeItem("admin_email");
     localStorage.removeItem("admin_role");
     localStorage.removeItem("admin_name");
@@ -237,7 +239,7 @@ export default function AdminDesktopPage() {
         await signOut(auth);
       } catch {}
     }
-    router.push("/admin/login");
+    window.location.href = "/admin/login?logout=1";
   };
 
   // Handlers untuk Kelola Admin
@@ -415,6 +417,41 @@ export default function AdminDesktopPage() {
   const [officeLng, setOfficeLng] = useState("106.816666");
   const [officeRadius, setOfficeRadius] = useState("50");
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+
+  // Timezone State
+  const [companySettings, setCompanySettings] = useState<CompanySettings>(DEFAULT_COMPANY_SETTINGS);
+  const [selectedTimezone, setSelectedTimezone] = useState<string>("Asia/Tokyo");
+  const [isSavingTimezone, setIsSavingTimezone] = useState(false);
+  const [previewTime, setPreviewTime] = useState("");
+  const [previewDate, setPreviewDate] = useState("");
+
+  // Berlangganan Pengaturan Zona Waktu Perusahaan
+  useEffect(() => {
+    const unsubSettings = subscribeToCompanySettings((settings) => {
+      if (settings) {
+        setCompanySettings(settings);
+        setSelectedTimezone(settings.timezone || "Asia/Tokyo");
+      }
+    });
+    return () => unsubSettings();
+  }, []);
+
+  // Ticking clock untuk preview zona waktu di admin
+  useEffect(() => {
+    const updatePreview = () => {
+      const now = new Date();
+      try {
+        setPreviewTime(now.toLocaleTimeString("id-ID", { timeZone: selectedTimezone, hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+        setPreviewDate(now.toLocaleDateString("id-ID", { timeZone: selectedTimezone, weekday: "long", day: "numeric", month: "long", year: "numeric" }));
+      } catch (e) {
+        setPreviewTime(now.toLocaleTimeString("id-ID"));
+        setPreviewDate(now.toLocaleDateString("id-ID"));
+      }
+    };
+    updatePreview();
+    const interval = setInterval(updatePreview, 1000);
+    return () => clearInterval(interval);
+  }, [selectedTimezone]);
 
   // Karyawan State
   const [karyawanList, setKaryawanList] = useState<Karyawan[]>(initialKaryawan);
@@ -1120,6 +1157,36 @@ export default function AdminDesktopPage() {
       showToast(err.message || "Gagal menghapus semua riwayat pengajuan.");
     } finally {
       setIsDeletingPengajuan(false);
+    }
+  };
+
+  const handleSaveTimezone = async () => {
+    const opt = TIMEZONE_OPTIONS.find(t => t.id === selectedTimezone);
+    if (!opt) return;
+    setIsSavingTimezone(true);
+    try {
+      const res = await updateCompanySettings({
+        timezone: opt.id,
+        timezoneCode: opt.code,
+        timezoneLabel: `${opt.code} - ${opt.name.split(" - ")[1]} (${opt.offset})`,
+        updatedBy: currentAdminName || currentAdminEmail
+      });
+      if (res.success) {
+        showToast(`Zona waktu berhasil disimpan ke ${opt.code} (${opt.offset}). Aplikasi karyawan otomatis tersinkronisasi.`);
+        logAdminActivity({
+          adminEmail: currentAdminEmail,
+          adminName: currentAdminName,
+          action: "UPDATE_ZONA_WAKTU",
+          target: opt.code,
+          details: `Mengubah zona waktu operasional sistem ke ${opt.name} (${opt.offset})`
+        });
+      } else {
+        showToast(res.error || "Gagal menyimpan zona waktu.");
+      }
+    } catch (err: any) {
+      showToast(err.message || "Gagal menyimpan zona waktu.");
+    } finally {
+      setIsSavingTimezone(false);
     }
   };
 
@@ -3890,7 +3957,7 @@ export default function AdminDesktopPage() {
           {activeMenu === "pengaturan" && (
             <div className="space-y-6 animate-slide-up">
               {/* Sub-tab Navigation */}
-              <div className="bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 flex items-center space-x-2 max-w-2xl">
+              <div className="bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 flex items-center space-x-2 max-w-3xl flex-wrap">
                 <button
                   type="button"
                   onClick={() => setPengaturanSubTab("lokasi")}
@@ -3902,6 +3969,22 @@ export default function AdminDesktopPage() {
                 >
                   <i className="fa-solid fa-map-location-dot"></i>
                   <span>Titik Lokasi & GPS</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPengaturanSubTab("waktu")}
+                  className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center space-x-2 ${
+                    pengaturanSubTab === "waktu"
+                      ? "bg-pilar-darker text-pilar-gold shadow-md"
+                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
+                >
+                  <i className="fa-solid fa-clock"></i>
+                  <span>Zona Waktu</span>
+                  <span className="px-1.5 py-0.5 text-[10px] font-black rounded-md bg-pilar-gold text-pilar-darker">
+                    {companySettings?.timezoneCode || "JST"}
+                  </span>
                 </button>
 
                 {/* Sub-tab Kelola Admin: Khusus Super Admin */}
@@ -4050,6 +4133,153 @@ export default function AdminDesktopPage() {
                           </button>
                         </div>
                       )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Sub-tab: ZONA WAKTU */}
+              {pengaturanSubTab === "waktu" && (
+                <div className="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 overflow-hidden animate-slide-up">
+                  <div className="p-8 border-b border-gray-100 bg-gray-50/50 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <h3 className="font-extrabold text-gray-800 text-xl tracking-tight">Pengaturan Zona Waktu Operasional (Server & Absensi)</h3>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-pilar-gold text-pilar-darker shadow-2xs">
+                          {companySettings?.timezoneCode || "JST"}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-500 mt-1">
+                        Pilih zona waktu resmi yang digunakan untuk perhitungan jam kerja, batas shift absensi masuk & pulang, dan jam digital di aplikasi karyawan.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mr-2"></span>
+                        Tersinkron Realtime
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-8 space-y-8">
+                    {/* Live Clock Preview Card */}
+                    <div className="bg-gradient-to-br from-pilar-darker via-gray-900 to-black rounded-3xl p-6 md:p-8 text-white relative overflow-hidden shadow-xl shadow-pilar-darker/10">
+                      <div className="absolute right-0 top-0 w-80 h-80 bg-pilar-gold/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+                      
+                      <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                        <div>
+                          <div className="flex items-center gap-2 text-pilar-gold text-xs font-bold uppercase tracking-widest mb-1">
+                            <i className="fa-solid fa-satellite-dish"></i>
+                            <span>Pratinjau Jam Server & Aplikasi Karyawan</span>
+                          </div>
+                          <div className="text-4xl md:text-5xl font-black tracking-tight text-white flex items-baseline gap-3">
+                            <span>{previewTime || "--:--:--"}</span>
+                            <span className="text-xl md:text-2xl font-black text-pilar-gold">
+                              {TIMEZONE_OPTIONS.find(t => t.id === selectedTimezone)?.code || "JST"}
+                            </span>
+                          </div>
+                          <p className="text-gray-300 text-sm mt-2 font-medium">
+                            <i className="fa-solid fa-calendar-day text-pilar-gold mr-2"></i>
+                            {previewDate || "-"}
+                          </p>
+                        </div>
+
+                        <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/15 max-w-sm">
+                          <p className="text-xs text-gray-200 leading-relaxed">
+                            <strong className="text-pilar-gold font-bold">Catatan:</strong> Seluruh validasi jam masuk, keterlambatan, dan jam pulang shift karyawan akan dievaluasi berdasarkan jam di atas.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Timezone Selection Grid */}
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <i className="fa-solid fa-globe text-pilar-darker"></i>
+                        <span>Pilih Zona Waktu Perusahaan:</span>
+                      </h4>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {TIMEZONE_OPTIONS.map((opt) => {
+                          const isSelected = selectedTimezone === opt.id;
+                          const isCurrentActive = companySettings?.timezone === opt.id;
+
+                          return (
+                            <div
+                              key={opt.id}
+                              onClick={() => setSelectedTimezone(opt.id)}
+                              className={`p-5 rounded-2xl border-2 transition-all cursor-pointer relative overflow-hidden group ${
+                                isSelected
+                                  ? "border-pilar-gold bg-amber-50/20 shadow-md ring-2 ring-pilar-gold/20"
+                                  : "border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50/50 shadow-2xs"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="space-y-1 pr-4">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider ${
+                                      isSelected
+                                        ? "bg-pilar-darker text-pilar-gold"
+                                        : "bg-gray-100 text-gray-700"
+                                    }`}>
+                                      {opt.code}
+                                    </span>
+                                    <span className="text-xs font-bold text-gray-500 font-mono">({opt.offset})</span>
+                                    {isCurrentActive && (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                                        Aktif Sekarang
+                                      </span>
+                                    )}
+                                  </div>
+                                  <h5 className="font-extrabold text-gray-800 text-base group-hover:text-pilar-darker transition-colors pt-1">
+                                    {opt.name}
+                                  </h5>
+                                  <p className="text-xs text-gray-500 leading-relaxed pt-0.5">
+                                    <i className="fa-solid fa-map-pin text-gray-400 mr-1.5 text-[10px]"></i>
+                                    {opt.region}
+                                  </p>
+                                </div>
+
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                                  isSelected
+                                    ? "border-pilar-darker bg-pilar-darker text-pilar-gold"
+                                    : "border-gray-300 group-hover:border-gray-400"
+                                }`}>
+                                  {isSelected && <i className="fa-solid fa-check text-[10px]"></i>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Action Bar */}
+                    <div className="pt-4 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                      <div className="text-xs text-gray-500 flex items-center gap-2">
+                        <i className="fa-solid fa-circle-info text-blue-500 text-sm"></i>
+                        <span>Perubahan akan otomatis terapkan ke jam absen karyawan dan seluruh validasi server.</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={isSavingTimezone}
+                        onClick={handleSaveTimezone}
+                        className="bg-pilar-darker hover:bg-black text-pilar-gold font-bold px-8 py-3.5 rounded-xl shadow-md hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
+                      >
+                        {isSavingTimezone ? (
+                          <>
+                            <i className="fa-solid fa-circle-notch fa-spin text-sm"></i>
+                            <span>Menyimpan...</span>
+                          </>
+                        ) : (
+                          <>
+                            <i className="fa-solid fa-floppy-disk text-sm"></i>
+                            <span>Simpan Pengaturan Zona Waktu</span>
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>

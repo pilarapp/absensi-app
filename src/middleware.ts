@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname, searchParams } = request.nextUrl;
 
   const adminSession = request.cookies.get('pilar_admin_session')?.value;
 
@@ -14,9 +14,17 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // 2. If already logged in as admin and visits /admin/login, redirect to /admin
-  if (pathname === '/admin/login' && adminSession) {
-    return NextResponse.redirect(new URL('/admin', request.url));
+  // 2. If already logged in as admin and visits /admin/login, redirect to /admin unless logout requested
+  if (pathname === '/admin/login') {
+    if (searchParams.has('logout')) {
+      const res = NextResponse.next();
+      res.cookies.delete('pilar_admin_session');
+      res.cookies.delete('pilar_admin_role');
+      return res;
+    }
+    if (adminSession) {
+      return NextResponse.redirect(new URL('/admin', request.url));
+    }
   }
 
   return NextResponse.next();

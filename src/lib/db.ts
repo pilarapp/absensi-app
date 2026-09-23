@@ -998,3 +998,120 @@ export const deleteSuratPeringatan = async (spId: string) => {
   }
 };
 
+// === PENGATURAN PERUSAHAAN (ZONA WAKTU DLL) ===
+export const COLL_SETTINGS = "settings";
+
+export interface CompanySettings {
+  timezone: string;
+  timezoneCode: string;
+  timezoneLabel: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export const TIMEZONE_OPTIONS = [
+  {
+    id: "Asia/Jakarta",
+    code: "WIB",
+    name: "WIB - Waktu Indonesia Barat",
+    offset: "UTC+7",
+    region: "Sumatera, Jawa, Kalbar, Kalteng"
+  },
+  {
+    id: "Asia/Makassar",
+    code: "WITA",
+    name: "WITA - Waktu Indonesia Tengah",
+    offset: "UTC+8",
+    region: "Sulawesi, Bali, NTB, NTT, Kalsel, Kaltim, Kaltara"
+  },
+  {
+    id: "Asia/Jayapura",
+    code: "WIT",
+    name: "WIT - Waktu Indonesia Timur",
+    offset: "UTC+9",
+    region: "Maluku, Maluku Utara, Papua"
+  },
+  {
+    id: "Asia/Tokyo",
+    code: "JST",
+    name: "JST - Jepang (Japan Standard Time)",
+    offset: "UTC+9",
+    region: "Tokyo, Osaka, seluruh wilayah Jepang"
+  }
+];
+
+export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
+  timezone: "Asia/Tokyo",
+  timezoneCode: "JST",
+  timezoneLabel: "JST - Jepang (UTC+9)"
+};
+
+export const getCompanySettings = async (): Promise<CompanySettings> => {
+  if (!db) return DEFAULT_COMPANY_SETTINGS;
+  try {
+    const docSnap = await getDoc(doc(db, COLL_SETTINGS, "company_settings"));
+    if (docSnap.exists()) {
+      return { ...DEFAULT_COMPANY_SETTINGS, ...docSnap.data() } as CompanySettings;
+    }
+  } catch (err) {
+    console.error("Gagal mengambil pengaturan perusahaan:", err);
+  }
+  return DEFAULT_COMPANY_SETTINGS;
+};
+
+export const updateCompanySettings = async (settingsData: Partial<CompanySettings>) => {
+  // 1. Coba via API backend server terlebih dahulu
+  try {
+    const { auth } = await import("@/lib/firebase");
+    const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
+    if (token) {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(settingsData)
+      });
+      if (res.ok) {
+        return { success: true };
+      }
+      const errData = await res.json().catch(() => ({}));
+      console.warn("Backend updateSettings returned non-ok:", res.status, errData);
+    }
+  } catch (apiErr) {
+    console.warn("Gagal update via /api/settings, mencoba direct Firestore:", apiErr);
+  }
+
+  // 2. Fallback direct client setDoc
+  if (!db) return { success: false, error: "Database tidak terhubung" };
+  try {
+    await setDoc(doc(db, COLL_SETTINGS, "company_settings"), {
+      ...settingsData,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    return { success: true };
+  } catch (err: any) {
+    console.error("Gagal menyimpan pengaturan perusahaan:", err);
+    return { success: false, error: err.message || "Gagal menyimpan pengaturan" };
+  }
+};
+
+export const subscribeToCompanySettings = (callback: (data: CompanySettings) => void) => {
+  if (!db) {
+    callback(DEFAULT_COMPANY_SETTINGS);
+    return () => {};
+  }
+  return onSnapshot(doc(db, COLL_SETTINGS, "company_settings"), (docSnap) => {
+    if (docSnap.exists()) {
+      callback({ ...DEFAULT_COMPANY_SETTINGS, ...docSnap.data() } as CompanySettings);
+    } else {
+      callback(DEFAULT_COMPANY_SETTINGS);
+    }
+  }, (err) => {
+    console.warn("Error subscribe to company settings:", err);
+    callback(DEFAULT_COMPANY_SETTINGS);
+  });
+};
+
+
