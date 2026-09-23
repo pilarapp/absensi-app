@@ -134,7 +134,7 @@ export default function PengaturanPage() {
         showToast("Gagal mengonfirmasi surat. Silakan coba lagi.", "error");
       }
     } catch (err: any) {
-      showToast(err?.message || "Terjadi kesalahan", "error");
+      showToast("Terjadi kesalahan pada server. Silakan coba lagi.", "error");
     } finally {
       setIsAcknowledging(false);
     }
@@ -249,7 +249,7 @@ export default function PengaturanPage() {
       showToast("Foto profil berhasil diunggah!");
     } catch (err: any) {
       console.error("Upload error:", err);
-      showToast(err.message || "Gagal mengunggah foto profil.", "error");
+      showToast("Gagal mengunggah foto profil. Pastikan koneksi internet Anda stabil.", "error");
       // Rollback ke foto sebelumnya jika gagal
       setPreviewFoto(currentUser?.foto || null);
     } finally {
@@ -339,7 +339,7 @@ export default function PengaturanPage() {
       setIsProfileModalOpen(false);
     } catch (err: any) {
       console.error(err);
-      showToast(err.message || "Terjadi kesalahan saat memperbarui profil.", "error");
+      showToast("Terjadi kesalahan saat memperbarui profil. Silakan coba lagi.", "error");
     } finally {
       setIsSavingProfile(false);
     }
@@ -401,7 +401,7 @@ export default function PengaturanPage() {
       } else if (err?.code === "auth/requires-recent-login") {
         showToast("Demi keamanan, silakan keluar dan login ulang sebelum mengganti sandi.", "error");
       } else {
-        showToast("Gagal memperbarui sandi: " + (err?.message || "Terjadi kesalahan"), "error");
+        showToast("Gagal memperbarui kata sandi. Silakan coba beberapa saat lagi.", "error");
       }
     } finally {
       setIsUpdatingPassword(false);

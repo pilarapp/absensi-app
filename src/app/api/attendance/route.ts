@@ -190,7 +190,7 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error('Check-in error:', error);
-    return NextResponse.json({ error: error.message || 'Gagal memproses absen masuk.' }, { status: 500 });
+    return NextResponse.json({ error: 'Terjadi kesalahan pada server saat memproses absen masuk. Silakan coba beberapa saat lagi.' }, { status: 500 });
   }
 }
 
@@ -261,7 +261,7 @@ export async function PUT(req: Request) {
 
   } catch (error: any) {
     console.error('Check-out error:', error);
-    return NextResponse.json({ error: error.message || 'Gagal memproses absen pulang.' }, { status: 500 });
+    return NextResponse.json({ error: 'Terjadi kesalahan pada server saat memproses absen pulang. Silakan coba beberapa saat lagi.' }, { status: 500 });
   }
 }
 
@@ -359,7 +359,7 @@ export async function DELETE(req: Request) {
   } catch (error: any) {
     console.error('Error DELETE /api/attendance:', error);
     return NextResponse.json(
-      { error: error.message || 'Gagal menghapus riwayat absensi.' },
+      { error: 'Terjadi kesalahan pada server saat menghapus riwayat absensi.' },
       { status: 500 }
     );
   }
