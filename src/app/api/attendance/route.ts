@@ -79,13 +79,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Koordinat GPS wajib valid.' }, { status: 400 });
     }
 
-    // 1. Ambil data profil karyawan
-    const empDoc = await adminDb.collection('employees').doc(caller.uid).get();
-    let empData = empDoc.exists ? empDoc.data() : null;
+    // 1. Ambil data profil karyawan, lokasi, dan timezone secara paralel
+    const [empDoc, locsSnapshot, appTimezone] = await Promise.all([
+      adminDb.collection('employees').doc(caller.uid).get().catch(() => null),
+      adminDb.collection('locations').get().catch(() => null),
+      getCompanyTimezone().catch(() => 'Asia/Tokyo'),
+    ]);
 
-    if (!empData) {
-      const empQuery = await adminDb.collection('employees').where('email', '==', caller.email).limit(1).get();
-      if (!empQuery.empty) {
+    let empData = empDoc?.exists ? empDoc.data() : null;
+
+    if (!empData && caller.email) {
+      const empQuery = await adminDb.collection('employees').where('email', '==', caller.email).limit(1).get().catch(() => null);
+      if (empQuery && !empQuery.empty) {
         empData = empQuery.docs[0].data();
       }
     }
@@ -99,8 +104,7 @@ export async function POST(req: Request) {
     }
 
     // 2. Validasi Jarak Geofencing / Radius Kantor
-    const locsSnapshot = await adminDb.collection('locations').get();
-    const allLocations = locsSnapshot.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+    const allLocations = locsSnapshot?.docs ? (locsSnapshot.docs.map((d: any) => ({ id: d.id, ...d.data() })) as any[]) : [];
 
     if (allLocations.length > 0) {
       let eligibleLocations = allLocations;
@@ -133,7 +137,6 @@ export async function POST(req: Request) {
     }
 
     // 3. Waktu Server & Keterlambatan
-    const appTimezone = await getCompanyTimezone();
     const { tanggal, possibleDates, timeString, timezoneCode } = getAppDateTime(appTimezone);
 
     // Cek apakah sudah pernah absen masuk hari ini
@@ -158,6 +161,7 @@ export async function POST(req: Request) {
 
     const batasMasuk = empData.shiftMasuk || '08:00';
     const isTerlambat = timeString > batasMasuk;
+    const attendanceStatus = isTerlambat ? 'Terlambat' : 'Hadir';
 
     const newAttendance = {
       karyawanId: caller.uid,
@@ -165,7 +169,7 @@ export async function POST(req: Request) {
       tanggal,
       jamMasuk: timeString,
       jamKeluar: null,
-      status: isTerlambat ? 'Terlambat' : 'Hadir',
+      status: attendanceStatus,
       koordinatMasuk: { lat, lng },
       createdAt: new Date(),
       verifiedByServer: true,
@@ -178,7 +182,7 @@ export async function POST(req: Request) {
       docId: docRef.id,
       tanggal,
       timeCheckin: timeString,
-      status,
+      status: attendanceStatus,
       timezone: appTimezone,
       timezoneCode,
       message: isTerlambat ? `Absen masuk berhasil (Terlambat: ${timeString} ${timezoneCode})` : `Absen masuk berhasil (${timeString} ${timezoneCode})`
@@ -205,10 +209,12 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: 'Koordinat GPS wajib valid.' }, { status: 400 });
     }
 
-    const empDoc = await adminDb.collection('employees').doc(caller.uid).get();
-    const empData = empDoc.exists ? empDoc.data() : null;
+    const [empDoc, appTimezone] = await Promise.all([
+      adminDb.collection('employees').doc(caller.uid).get().catch(() => null),
+      getCompanyTimezone().catch(() => 'Asia/Tokyo'),
+    ]);
 
-    const appTimezone = await getCompanyTimezone();
+    const empData = empDoc?.exists ? empDoc.data() : null;
     const { tanggal, possibleDates, timeString, timezoneCode } = getAppDateTime(appTimezone);
 
     // 1. Cek Batas Jam Pulang

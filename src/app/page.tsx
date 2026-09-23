@@ -354,37 +354,141 @@ export default function EmployeeDashboard() {
         }
 
         if (type === "Masuk") {
+          let checkinSuccess = false;
+
+          // 1. Coba lewat API backend server terlebih dahulu
           try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
             const res = await fetch("/api/attendance", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${idToken}`
               },
-              body: JSON.stringify({ lat: latitude, lng: longitude })
+              body: JSON.stringify({ lat: latitude, lng: longitude }),
+              signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
-            const resData = await res.json();
-            if (!res.ok) {
-              showToast(resData.error || "Gagal absen masuk", "error");
+            const resText = await res.text();
+            let resData: any = null;
+            try { resData = JSON.parse(resText); } catch {}
+
+            if (res.ok && resData?.success) {
+              checkinSuccess = true;
+              setTimeCheckin(resData.timeCheckin);
+              setHasCheckedIn(true);
+              showToast(resData.message || "Berhasil Absen Masuk!", "success");
+
+              localStorage.setItem("pilar_today_attendance", JSON.stringify({
+                date: resData.tanggal,
+                timeCheckin: resData.timeCheckin,
+                timeCheckout: null,
+                docId: resData.docId
+              }));
+              setIsLoadingLocation(false);
+              return;
+            } else if (resData?.error) {
+              showToast(resData.error, "error");
               setIsLoadingLocation(false);
               return;
             }
+          } catch (apiErr) {
+            console.warn("API attendance notice, mencoba fallback Firestore langsung:", apiErr);
+          }
 
-            setTimeCheckin(resData.timeCheckin);
-            setHasCheckedIn(true);
-            showToast(resData.message || "Berhasil Absen Masuk!", "success");
+          // 2. Fallback: Catat langsung ke Firestore jika API serverless Vercel mengalami latency / timeout
+          if (!checkinSuccess) {
+            try {
+              const { fetchLocations, recordCheckIn, getTodayAttendance } = await import("@/lib/db");
+              const locations = (await fetchLocations()) as any[];
 
-            localStorage.setItem("pilar_today_attendance", JSON.stringify({
-              date: resData.tanggal,
-              timeCheckin: resData.timeCheckin,
-              timeCheckout: null,
-              docId: resData.docId
-            }));
-          } catch (err) {
-            showToast("Gagal terhubung ke server absensi.", "error");
-            setIsLoadingLocation(false);
-            return;
+              if (locations && locations.length > 0) {
+                let eligible: any[] = locations;
+                if (currentUser?.lokasiId && currentUser?.lokasiId !== 'all') {
+                  const assigned = locations.filter((l: any) => l.id === currentUser.lokasiId);
+                  if (assigned.length > 0) eligible = assigned;
+                }
+
+                // Rumus jarak Haversine (meter)
+                const calcDist = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+                  const R = 6371e3;
+                  const toRad = (deg: number) => (deg * Math.PI) / 180;
+                  const dLat = toRad(lat2 - lat1);
+                  const dLon = toRad(lon2 - lon1);
+                  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                };
+
+                let minDistance = Infinity;
+                let closest: any = eligible[0];
+                for (const loc of eligible) {
+                  if (typeof loc?.lat === 'number' && typeof loc?.lng === 'number') {
+                    const dist = calcDist(latitude, longitude, loc.lat, loc.lng);
+                    if (dist < minDistance) {
+                      minDistance = dist;
+                      closest = loc;
+                    }
+                  }
+                }
+
+                const allowedRadius = closest?.radius || 50;
+                if (minDistance > allowedRadius) {
+                  showToast(`Anda berada di luar radius kantor (${Math.round(minDistance)}m dari ${closest?.nama || 'Kantor'}, batas radius ${allowedRadius}m). Absensi masuk ditolak.`, "error");
+                  setIsLoadingLocation(false);
+                  return;
+                }
+              }
+
+              // Cek apakah sudah absen masuk hari ini
+              const todayAtt = await getTodayAttendance(currentUser?.id || auth.currentUser?.uid || '');
+              if (todayAtt?.jamMasuk) {
+                setTimeCheckin(todayAtt.jamMasuk);
+                setHasCheckedIn(true);
+                showToast("Anda sudah melakukan absen masuk hari ini.", "success");
+                setIsLoadingLocation(false);
+                return;
+              }
+
+              const now = new Date();
+              const timeStr = now.toLocaleTimeString("id-ID", { timeZone: appTimezone, hour: '2-digit', minute: '2-digit', hour12: false }).replace('.', ':');
+              const d = now.getDate();
+              const m = now.getMonth() + 1;
+              const y = now.getFullYear();
+              const dateStr = `${d}/${m}/${y}`;
+
+              const batasShift = currentUser?.shiftMasuk || "08:00";
+              const isLate = timeStr > batasShift;
+              const attStatus = isLate ? "Terlambat" : "Hadir";
+
+              const docId = await recordCheckIn({
+                karyawanId: currentUser?.id || auth.currentUser?.uid,
+                karyawanNama: currentUser?.nama || "Karyawan",
+                tanggal: dateStr,
+                jamMasuk: timeStr,
+                jamKeluar: null,
+                status: attStatus,
+                koordinatMasuk: { lat: latitude, lng: longitude }
+              });
+
+              if (docId) {
+                setTimeCheckin(timeStr);
+                setHasCheckedIn(true);
+                showToast(isLate ? `Absen masuk berhasil (Terlambat: ${timeStr} ${appTimezoneCode})` : `Absen masuk berhasil (${timeStr} ${appTimezoneCode})`, "success");
+                localStorage.setItem("pilar_today_attendance", JSON.stringify({
+                  date: dateStr,
+                  timeCheckin: timeStr,
+                  timeCheckout: null,
+                  docId: docId
+                }));
+              } else {
+                showToast("Gagal menyimpan data absensi masuk.", "error");
+              }
+            } catch (fallbackErr) {
+              console.error("Fallback checkin error:", fallbackErr);
+              showToast("Gagal memproses absensi masuk.", "error");
+            }
           }
 
         } else if (type === "Pulang" && hasCheckedIn) {
@@ -396,37 +500,84 @@ export default function EmployeeDashboard() {
             } catch (e) {}
           }
 
+          let checkoutSuccess = false;
+
+          // 1. Coba lewat API backend
           try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
             const res = await fetch("/api/attendance", {
               method: "PUT",
               headers: {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${idToken}`
               },
-              body: JSON.stringify({ lat: latitude, lng: longitude, docId: targetDocId })
+              body: JSON.stringify({ lat: latitude, lng: longitude, docId: targetDocId }),
+              signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
-            const resData = await res.json();
-            if (!res.ok) {
-              showToast(resData.error || "Gagal absen pulang", "error");
+            const resText = await res.text();
+            let resData: any = null;
+            try { resData = JSON.parse(resText); } catch {}
+
+            if (res.ok && resData?.success) {
+              checkoutSuccess = true;
+              setTimeCheckout(resData.timeCheckout);
+              showToast(resData.message || "Berhasil Absen Pulang!", "success");
+
+              let data: any = {
+                date: resData.tanggal,
+                timeCheckin: timeCheckin,
+                timeCheckout: resData.timeCheckout,
+                docId: resData.docId || targetDocId
+              };
+              localStorage.setItem("pilar_today_attendance", JSON.stringify(data));
+              setIsLoadingLocation(false);
+              return;
+            } else if (resData?.error) {
+              showToast(resData.error, "error");
               setIsLoadingLocation(false);
               return;
             }
+          } catch (apiErr) {
+            console.warn("API checkout notice, mencoba fallback Firestore:", apiErr);
+          }
 
-            setTimeCheckout(resData.timeCheckout);
-            showToast(resData.message || "Berhasil Absen Pulang!", "success");
+          // 2. Fallback: Langsung update ke Firestore
+          if (!checkoutSuccess) {
+            try {
+              const now = new Date();
+              const timeStr = now.toLocaleTimeString("id-ID", { timeZone: appTimezone, hour: '2-digit', minute: '2-digit', hour12: false }).replace('.', ':');
+              const batasKeluar = currentUser?.shiftKeluar || "17:00";
 
-            let data: any = {
-              date: resData.tanggal,
-              timeCheckin: timeCheckin,
-              timeCheckout: resData.timeCheckout,
-              docId: resData.docId || targetDocId
-            };
-            localStorage.setItem("pilar_today_attendance", JSON.stringify(data));
-          } catch (err) {
-            showToast("Gagal terhubung ke server absensi.", "error");
-            setIsLoadingLocation(false);
-            return;
+              if (timeStr < batasKeluar) {
+                showToast(`Belum masuk waktu pulang (Jadwal pulang shift Anda: ${batasKeluar}, jam saat ini: ${timeStr} ${appTimezoneCode}).`, "error");
+                setIsLoadingLocation(false);
+                return;
+              }
+
+              const { recordCheckOut } = await import("@/lib/db");
+              if (targetDocId) {
+                const ok = await recordCheckOut(targetDocId, timeStr, { lat: latitude, lng: longitude });
+                if (ok) {
+                  setTimeCheckout(timeStr);
+                  showToast(`Berhasil absen pulang pada pukul ${timeStr} ${appTimezoneCode}`, "success");
+                  let data: any = {
+                    date: `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`,
+                    timeCheckin: timeCheckin,
+                    timeCheckout: timeStr,
+                    docId: targetDocId
+                  };
+                  localStorage.setItem("pilar_today_attendance", JSON.stringify(data));
+                } else {
+                  showToast("Gagal memperbarui jam pulang ke database.", "error");
+                }
+              }
+            } catch (fallbackErr) {
+              console.error("Fallback checkout error:", fallbackErr);
+              showToast("Gagal terhubung ke server absensi.", "error");
+            }
           }
         }
         

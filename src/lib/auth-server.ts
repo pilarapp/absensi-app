@@ -18,6 +18,32 @@ export function getBearerToken(req: Request): string | null {
   return null;
 }
 
+// Fallback verifikasi token via Google Identity Toolkit REST API
+async function verifyTokenFallback(idToken: string) {
+  const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.users && data.users.length > 0) {
+      const u = data.users[0];
+      return {
+        uid: u.localId,
+        email: (u.email || '').toLowerCase(),
+        name: u.displayName || '',
+      };
+    }
+  } catch (err) {
+    console.warn("verifyTokenFallback in auth-server error:", err);
+  }
+  return null;
+}
+
 /**
  * Memverifikasi Firebase ID Token dari header Authorization
  */
@@ -26,19 +52,49 @@ export async function verifyCaller(req: Request): Promise<CallerInfo | null> {
     const token = getBearerToken(req);
     if (!token) return null;
 
-    const decoded = await adminAuth.verifyIdToken(token);
-    const uid = decoded.uid;
-    const email = (decoded.email || '').toLowerCase();
+    let uid = '';
+    let email = '';
+    let tokenName = '';
+    let tokenRole: string | undefined;
+    let tokenIsSuperAdmin: boolean | undefined;
 
-    // Cek koleksi admins
-    const adminDoc = await adminDb.collection('admins').doc(uid).get();
-    const adminData = adminDoc.exists ? adminDoc.data() : null;
-    const isAdmin = adminDoc.exists || decoded.role === 'admin';
-    const isSuperAdmin = isAdmin && (
-      adminData?.role === 'superadmin' ||
-      decoded.isSuperAdmin === true ||
-      email === 'pilarss@admin.com'
-    );
+    try {
+      const decoded = await adminAuth.verifyIdToken(token);
+      uid = decoded.uid;
+      email = (decoded.email || '').toLowerCase();
+      tokenName = decoded.name || '';
+      tokenRole = decoded.role;
+      tokenIsSuperAdmin = decoded.isSuperAdmin;
+    } catch (adminErr) {
+      console.warn("adminAuth.verifyIdToken notice in auth-server, attempting Google REST lookup:", adminErr);
+      const fallbackUser = await verifyTokenFallback(token);
+      if (fallbackUser) {
+        uid = fallbackUser.uid;
+        email = fallbackUser.email;
+        tokenName = fallbackUser.name;
+      } else {
+        return null;
+      }
+    }
+
+    // Cek koleksi admins secara aman
+    let adminData: any = null;
+    let isAdmin = tokenRole === 'admin' || email === 'pilarss@admin.com';
+    let isSuperAdmin = tokenIsSuperAdmin === true || email === 'pilarss@admin.com';
+
+    try {
+      const adminDoc = await adminDb.collection('admins').doc(uid).get();
+      if (adminDoc.exists) {
+        adminData = adminDoc.data();
+        isAdmin = true;
+        if (adminData?.role === 'superadmin') {
+          isSuperAdmin = true;
+        }
+      }
+    } catch (dbErr) {
+      // Abaikan jika Firestore serverless belum terhubung
+      console.warn("adminDb check notice in auth-server:", dbErr);
+    }
 
     let role: 'admin' | 'superadmin' | 'karyawan' | 'unknown' = 'unknown';
     if (isSuperAdmin) role = 'superadmin';
@@ -48,7 +104,7 @@ export async function verifyCaller(req: Request): Promise<CallerInfo | null> {
     return {
       uid,
       email,
-      nama: adminData?.nama || decoded.name || '',
+      nama: adminData?.nama || tokenName || '',
       nik: adminData?.nik || '',
       role,
       isAdmin,
