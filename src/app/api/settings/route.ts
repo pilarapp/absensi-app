@@ -92,7 +92,7 @@ export async function PUT(req: Request) {
   } catch (error: any) {
     console.error('Error PUT /api/settings:', error);
     return NextResponse.json(
-      { error: error.message || 'Gagal menyimpan pengaturan zona waktu.' },
+      { error: 'Gagal menyimpan pengaturan zona waktu.' },
       { status: 500 }
     );
   }

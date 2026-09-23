@@ -109,7 +109,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error('Verify role error:', error);
     const status = error?.code?.startsWith('auth/') ? 401 : 500;
-    return NextResponse.json({ error: error.message || 'Token verification failed' }, { status });
+    return NextResponse.json({ error: 'Token verification failed' }, { status });
   }
 }
 

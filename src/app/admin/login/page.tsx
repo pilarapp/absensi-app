@@ -176,7 +176,7 @@ export default function AdminLoginPage() {
       if (err.code === "auth/invalid-credential" || err.code === "auth/user-not-found" || err.code === "auth/wrong-password") {
         setError("Email atau kata sandi salah.");
       } else {
-        setError("Gagal login: " + (err.message || "Terjadi kesalahan."));
+        setError("Gagal login: " + ("Terjadi kesalahan."));
       }
       setIsLoading(false);
     }

@@ -758,16 +758,6 @@ export default function EmployeeDashboard() {
           </div>
         </div>
 
-        {/* Reset Testing Button */}
-        <div className="mb-6 flex justify-center">
-          <button 
-            onClick={handleResetTesting}
-            className="text-xs bg-red-500/10 text-red-400 py-2 px-4 rounded-full border border-red-500/20 hover:bg-red-500/20 transition-colors"
-          >
-            <i className="fa-solid fa-rotate-left mr-2"></i>
-            Reset Absen (Mode Testing)
-          </button>
-        </div>
 
       </main>
 

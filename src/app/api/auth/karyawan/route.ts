@@ -110,7 +110,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, uid, message: 'Employee saved successfully' });
   } catch (error: any) {
     console.error('Error saving employee:', error);
-    let errorMsg = error.message || 'Terjadi kesalahan pada server';
+    let errorMsg = 'Terjadi kesalahan pada server';
     let statusCode = 500;
 
     if (error.code === 'auth/email-already-exists' || error.code === 'auth/email-already-in-use') {
@@ -157,6 +157,6 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ success: true, message: 'Employee deleted' });
   } catch (error: any) {
     console.error('Error deleting employee:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Terjadi kesalahan sistem pada server.' }, { status: 500 });
   }
 }

@@ -71,7 +71,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: true, admins });
   } catch (error: any) {
     console.error('Error fetching admins:', error);
-    return NextResponse.json({ error: error.message || 'Gagal memuat daftar admin' }, { status: 500 });
+    return NextResponse.json({ error: 'Gagal memuat daftar admin' }, { status: 500 });
   }
 }
 
@@ -158,7 +158,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, admin: adminData });
   } catch (error: any) {
     console.error('Error creating admin:', error);
-    return NextResponse.json({ error: error.message || 'Gagal membuat akun admin' }, { status: 500 });
+    return NextResponse.json({ error: 'Gagal membuat akun admin' }, { status: 500 });
   }
 }
 
@@ -254,7 +254,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ success: true, message: 'Data admin berhasil diperbarui.' });
   } catch (error: any) {
     console.error('Error updating admin:', error);
-    return NextResponse.json({ error: error.message || 'Gagal memperbarui data admin' }, { status: 500 });
+    return NextResponse.json({ error: 'Gagal memperbarui data admin' }, { status: 500 });
   }
 }
 
@@ -321,6 +321,6 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ success: true, message: 'Akun admin berhasil dihapus.' });
   } catch (error: any) {
     console.error('Error deleting admin:', error);
-    return NextResponse.json({ error: error.message || 'Gagal menghapus admin' }, { status: 500 });
+    return NextResponse.json({ error: 'Gagal menghapus admin' }, { status: 500 });
   }
 }

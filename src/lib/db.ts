@@ -29,7 +29,7 @@ export const subscribeToLocations = (callback: (data: any[]) => void) => {
   return onSnapshot(q, (snapshot) => {
     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     callback(data);
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 export const addLocation = async (locationData: any) => {
@@ -85,7 +85,7 @@ export const subscribeToEmployees = (callback: (data: any[]) => void) => {
   return onSnapshot(q, (snapshot) => {
     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     callback(data);
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 export const getTodayAttendance = async (karyawanId: string) => {
@@ -448,7 +448,7 @@ export const subscribeToRequests = (callback: (data: any[]) => void) => {
       ...normalizeData(doc.data())
     }));
     callback(requests);
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 export const subscribeToAllAttendance = (callback: (data: any[]) => void) => {
@@ -460,7 +460,7 @@ export const subscribeToAllAttendance = (callback: (data: any[]) => void) => {
       ...normalizeData(doc.data())
     }));
     callback(data);
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 // Subscribe ke pengajuan khusus milik karyawan bersangkutan (Least Privilege Firestore Rules)
@@ -475,7 +475,7 @@ export const subscribeToEmployeeRequests = (karyawanId: string, callback: (data:
     callback(requests);
   }, (err) => {
     console.warn("subscribeToEmployeeRequests error:", err);
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 // Subscribe ke riwayat absensi khusus milik karyawan bersangkutan (Least Privilege Firestore Rules)
@@ -490,7 +490,7 @@ export const subscribeToEmployeeAttendance = (karyawanId: string, callback: (dat
     callback(data);
   }, (err) => {
     console.warn("subscribeToEmployeeAttendance error:", err);
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 export const subscribeToFinances = (callback: (data: any[]) => void) => {
@@ -502,7 +502,7 @@ export const subscribeToFinances = (callback: (data: any[]) => void) => {
       ...normalizeData(doc.data())
     }));
     callback(data);
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 export const addFinanceTransaction = async (data: any) => {
@@ -543,7 +543,7 @@ export const subscribeToSalaries = (karyawanId: string | null, callback: (data: 
       ...normalizeData(doc.data())
     }));
     callback(data);
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 export const subscribeToNotifications = (userId: string | string[], callback: (data: any[]) => void) => {
@@ -564,7 +564,7 @@ export const subscribeToNotifications = (userId: string | string[], callback: (d
   }, (err) => {
     console.warn("Gagal memuat notifikasi:", err);
     callback([]);
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 export const addNotification = async (userId: string, title: string, message: string, type: string) => {
@@ -680,7 +680,7 @@ export const subscribeToAuditLogs = (callback: (logs: any[]) => void) => {
     // Urutkan dari yang terbaru ke terlama
     logs.sort((a, b) => new Date(b.timestampIso).getTime() - new Date(a.timestampIso).getTime());
     callback(logs);
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 export interface AdminAccount {
@@ -748,7 +748,7 @@ export const subscribeToAdmins = (callback: (admins: AdminAccount[]) => void) =>
     callback(list);
   }, (err) => {
     console.error("Gagal berlangganan admins:", err);
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 // === MASTER DATA POSISI / JABATAN ===
@@ -845,7 +845,7 @@ export const subscribeToPositions = (callback: (data: PositionItem[]) => void) =
   }, (err) => {
     console.error("Error subscribing to positions:", err);
     callback(DEFAULT_POSITIONS.map((p, idx) => ({ id: `default-${idx}`, nama: p, isDefault: true })));
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 export const addPosition = async (nama: string): Promise<{ success: boolean; id?: string; error?: string }> => {
@@ -871,7 +871,7 @@ export const addPosition = async (nama: string): Promise<{ success: boolean; id?
     return { success: true, id: docRef.id };
   } catch (err: any) {
     console.error("Gagal menambahkan posisi:", err);
-    return { success: false, error: err.message || "Gagal menyimpan posisi ke database" };
+    return { success: false, error: "Gagal menyimpan posisi ke database" };
   }
 };
 
@@ -961,7 +961,7 @@ export const addSuratPeringatan = async (spData: Omit<SuratPeringatan, "id">) =>
     return { success: true, id: docRef.id };
   } catch (err: any) {
     console.error("Gagal menambahkan Surat Peringatan:", err);
-    return { success: false, error: err.message || "Gagal menyimpan Surat Peringatan" };
+    return { success: false, error: "Gagal menyimpan Surat Peringatan" };
   }
 };
 
@@ -1104,7 +1104,7 @@ export const updateCompanySettings = async (settingsData: Partial<CompanySetting
     return { success: true };
   } catch (err: any) {
     console.error("Gagal menyimpan pengaturan perusahaan:", err);
-    return { success: false, error: err.message || "Gagal menyimpan pengaturan" };
+    return { success: false, error: "Gagal menyimpan pengaturan" };
   }
 };
 
@@ -1122,7 +1122,7 @@ export const subscribeToCompanySettings = (callback: (data: CompanySettings) => 
   }, (err) => {
     console.warn("Error subscribe to company settings:", err);
     callback(DEFAULT_COMPANY_SETTINGS);
-  });
+  }, (err) => console.warn('Snapshot listener error:', err.message));
 };
 
 

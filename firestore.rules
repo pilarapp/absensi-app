@@ -107,5 +107,11 @@ service cloud.firestore {
       allow create, delete: if isAdmin();
       allow update: if isAdmin() || (isAuthenticated() && resource.data.karyawanId == request.auth.uid);
     }
+
+    // 12. Koleksi Settings (Pengaturan Perusahaan): Dibaca oleh semua karyawan, diubah hanya oleh admin
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
   }
 }

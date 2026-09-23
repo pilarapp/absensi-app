@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
     
   } catch (error: any) {
     console.error("Upload error:", error);
-    return NextResponse.json({ error: error.message || "Gagal mengunggah file." }, { status: 500 });
+    return NextResponse.json({ error: "Gagal mengunggah file." }, { status: 500 });
   }
 }
 
@@ -192,6 +192,6 @@ export async function DELETE(req: NextRequest) {
     });
   } catch (error: any) {
     console.error("Delete file error:", error);
-    return NextResponse.json({ error: error.message || "Gagal menghapus file." }, { status: 500 });
+    return NextResponse.json({ error: "Gagal menghapus file." }, { status: 500 });
   }
 }

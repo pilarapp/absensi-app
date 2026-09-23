@@ -288,7 +288,7 @@ export default function PengajuanPage() {
       
     } catch (error: any) {
       console.error("Submit error:", error);
-      setToastMessage(error.message || "Terjadi kesalahan pada sistem.");
+      setToastMessage("Terjadi kesalahan pada sistem.");
       setTimeout(() => setToastMessage(""), 5000);
     } finally {
       setIsSubmitting(false);

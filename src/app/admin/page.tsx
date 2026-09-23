@@ -315,7 +315,7 @@ export default function AdminDesktopPage() {
       showToast(`Akun ${adminFormNama} (NIK: ${adminFormNik.trim()}) berhasil dibuat.`);
       setIsAddAdminModalOpen(false);
     } catch (err: any) {
-      setAdminActionError(err.message || "Gagal membuat akun admin.");
+      setAdminActionError("Gagal membuat akun admin.");
     } finally {
       setAdminActionLoading(false);
     }
@@ -371,7 +371,7 @@ export default function AdminDesktopPage() {
       showToast("Data akun admin & NIK berhasil diperbarui.");
       setIsEditAdminModalOpen(false);
     } catch (err: any) {
-      setAdminActionError(err.message || "Gagal memperbarui akun admin.");
+      setAdminActionError("Gagal memperbarui akun admin.");
     } finally {
       setAdminActionLoading(false);
     }
@@ -398,7 +398,7 @@ export default function AdminDesktopPage() {
       showToast(`Akses admin ${selectedAdminForDelete.nama} berhasil dicabut.`);
       setIsDeleteAdminModalOpen(false);
     } catch (err: any) {
-      setAdminActionError(err.message || "Gagal menghapus admin.");
+      setAdminActionError("Gagal menghapus admin.");
     } finally {
       setAdminActionLoading(false);
     }
@@ -524,7 +524,7 @@ export default function AdminDesktopPage() {
         setPositionModalError(res.error || "Gagal menambahkan posisi");
       }
     } catch (err: any) {
-      setPositionModalError(err.message || "Terjadi kesalahan sistem");
+      setPositionModalError("Terjadi kesalahan sistem");
     } finally {
       setIsSavingPosition(false);
     }
@@ -741,7 +741,7 @@ export default function AdminDesktopPage() {
         showToast(res.error || "Gagal menerbitkan SP", "error");
       }
     } catch (err: any) {
-      showToast(err?.message || "Terjadi kesalahan", "error");
+      showToast("Terjadi kesalahan", "error");
     } finally {
       setIsSavingSp(false);
     }
@@ -1125,7 +1125,7 @@ export default function AdminDesktopPage() {
         showToast("Gagal menghapus riwayat pengajuan.");
       }
     } catch (err: any) {
-      showToast(err.message || "Gagal menghapus riwayat pengajuan.");
+      showToast("Gagal menghapus riwayat pengajuan.");
     } finally {
       setIsDeletingPengajuan(false);
     }
@@ -1154,7 +1154,7 @@ export default function AdminDesktopPage() {
         showToast((res && res.error) || "Gagal menghapus semua riwayat pengajuan.");
       }
     } catch (err: any) {
-      showToast(err.message || "Gagal menghapus semua riwayat pengajuan.");
+      showToast("Gagal menghapus semua riwayat pengajuan.");
     } finally {
       setIsDeletingPengajuan(false);
     }
@@ -1184,7 +1184,7 @@ export default function AdminDesktopPage() {
         showToast(res.error || "Gagal menyimpan zona waktu.");
       }
     } catch (err: any) {
-      showToast(err.message || "Gagal menyimpan zona waktu.");
+      showToast("Gagal menyimpan zona waktu.");
     } finally {
       setIsSavingTimezone(false);
     }
@@ -1419,7 +1419,7 @@ export default function AdminDesktopPage() {
       }
     } catch (error: any) {
       console.error("Error saving karyawan:", error);
-      showToast(error?.message ? `Gagal menyimpan: ${error.message}` : "Terjadi kesalahan sistem saat menyimpan data.");
+      showToast("Terjadi kesalahan sistem saat menyimpan data.");
     } finally {
       setIsSavingKaryawan(false);
     }

@@ -120,7 +120,7 @@ export async function POST(req: Request) {
     return response;
   } catch (error: any) {
     console.error('Session creation error:', error);
-    return NextResponse.json({ error: error.message || 'Gagal membuat sesi.' }, { status: 500 });
+    return NextResponse.json({ error: 'Gagal membuat sesi.' }, { status: 500 });
   }
 }
 

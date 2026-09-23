@@ -66,7 +66,7 @@ export async function PUT(req: Request) {
   } catch (error: any) {
     console.error('Error PUT /api/requests:', error);
     return NextResponse.json(
-      { error: error.message || 'Gagal memperbarui pengajuan.' },
+      { error: 'Gagal memperbarui pengajuan.' },
       { status: 500 }
     );
   }
@@ -122,7 +122,7 @@ export async function PATCH(req: Request) {
   } catch (error: any) {
     console.error('Error PATCH /api/requests:', error);
     return NextResponse.json(
-      { error: error.message || 'Gagal mengubah status pengajuan.' },
+      { error: 'Gagal mengubah status pengajuan.' },
       { status: 500 }
     );
   }
@@ -160,7 +160,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error('Error POST /api/requests:', error);
     return NextResponse.json(
-      { error: error.message || 'Gagal mengirim pengajuan.' },
+      { error: 'Gagal mengirim pengajuan.' },
       { status: 500 }
     );
   }
@@ -264,7 +264,7 @@ export async function DELETE(req: Request) {
   } catch (error: any) {
     console.error('Error DELETE /api/requests:', error);
     return NextResponse.json(
-      { error: error.message || 'Gagal menghapus riwayat pengajuan.' },
+      { error: 'Gagal menghapus riwayat pengajuan.' },
       { status: 500 }
     );
   }
