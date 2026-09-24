@@ -475,7 +475,7 @@ export const subscribeToEmployeeRequests = (karyawanId: string, callback: (data:
     callback(requests);
   }, (err) => {
     console.warn("subscribeToEmployeeRequests error:", err);
-  }, (err) => console.warn('Snapshot listener error:', err.message));
+  });
 };
 
 // Subscribe ke riwayat absensi khusus milik karyawan bersangkutan (Least Privilege Firestore Rules)
@@ -490,7 +490,7 @@ export const subscribeToEmployeeAttendance = (karyawanId: string, callback: (dat
     callback(data);
   }, (err) => {
     console.warn("subscribeToEmployeeAttendance error:", err);
-  }, (err) => console.warn('Snapshot listener error:', err.message));
+  });
 };
 
 export const subscribeToFinances = (callback: (data: any[]) => void) => {
@@ -564,7 +564,7 @@ export const subscribeToNotifications = (userId: string | string[], callback: (d
   }, (err) => {
     console.warn("Gagal memuat notifikasi:", err);
     callback([]);
-  }, (err) => console.warn('Snapshot listener error:', err.message));
+  });
 };
 
 export const addNotification = async (userId: string, title: string, message: string, type: string) => {
@@ -748,7 +748,7 @@ export const subscribeToAdmins = (callback: (admins: AdminAccount[]) => void) =>
     callback(list);
   }, (err) => {
     console.error("Gagal berlangganan admins:", err);
-  }, (err) => console.warn('Snapshot listener error:', err.message));
+  });
 };
 
 // === MASTER DATA POSISI / JABATAN ===
@@ -845,7 +845,7 @@ export const subscribeToPositions = (callback: (data: PositionItem[]) => void) =
   }, (err) => {
     console.error("Error subscribing to positions:", err);
     callback(DEFAULT_POSITIONS.map((p, idx) => ({ id: `default-${idx}`, nama: p, isDefault: true })));
-  }, (err) => console.warn('Snapshot listener error:', err.message));
+  });
 };
 
 export const addPosition = async (nama: string): Promise<{ success: boolean; id?: string; error?: string }> => {
@@ -1122,7 +1122,7 @@ export const subscribeToCompanySettings = (callback: (data: CompanySettings) => 
   }, (err) => {
     console.warn("Error subscribe to company settings:", err);
     callback(DEFAULT_COMPANY_SETTINGS);
-  }, (err) => console.warn('Snapshot listener error:', err.message));
+  });
 };
 
 
