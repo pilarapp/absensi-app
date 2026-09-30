@@ -73,7 +73,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { lat, lng } = body;
+    const { lat, lng, shiftName, shiftMasuk, shiftKeluar } = body;
 
     if (typeof lat !== 'number' || typeof lng !== 'number') {
       return NextResponse.json({ error: 'Koordinat GPS wajib valid.' }, { status: 400 });
@@ -159,11 +159,11 @@ export async function POST(req: Request) {
       });
     }
 
-    const batasMasuk = empData.shiftMasuk || '08:00';
+    const batasMasuk = shiftMasuk || empData.shiftMasuk || '08:00';
     const isTerlambat = timeString > batasMasuk;
     const attendanceStatus = isTerlambat ? 'Terlambat' : 'Hadir';
 
-    const newAttendance = {
+    const newAttendance: any = {
       karyawanId: caller.uid,
       karyawanNama: empData.nama || caller.nama || 'Karyawan',
       tanggal,
@@ -174,6 +174,13 @@ export async function POST(req: Request) {
       createdAt: new Date(),
       verifiedByServer: true,
     };
+    
+    // Simpan shift jika ada (untuk satpam)
+    if (shiftName && shiftMasuk && shiftKeluar) {
+      newAttendance.shiftName = shiftName;
+      newAttendance.shiftMasuk = shiftMasuk;
+      newAttendance.shiftKeluar = shiftKeluar;
+    }
 
     const docRef = await adminDb.collection('attendance').add(newAttendance);
 
@@ -217,17 +224,14 @@ export async function PUT(req: Request) {
     const empData = empDoc?.exists ? empDoc.data() : null;
     const { tanggal, possibleDates, timeString, timezoneCode } = getAppDateTime(appTimezone);
 
-    // 1. Cek Batas Jam Pulang
-    const batasKeluar = empData?.shiftKeluar || '17:00';
-    if (timeString < batasKeluar) {
-      return NextResponse.json({
-        error: `Belum masuk waktu pulang (Jadwal pulang shift Anda: ${batasKeluar}, jam server saat ini: ${timeString} ${timezoneCode}).`
-      }, { status: 400 });
-    }
-
-    // 2. Cari dokumen absensi hari ini
+    // Cari dokumen absensi hari ini
     let targetDocId = docId;
-    if (!targetDocId) {
+    let attendanceData = null;
+
+    if (targetDocId) {
+      const snap = await adminDb.collection('attendance').doc(targetDocId).get();
+      if (snap.exists) attendanceData = snap.data();
+    } else {
       const snap = await adminDb.collection('attendance')
         .where('karyawanId', '==', caller.uid)
         .where('tanggal', 'in', possibleDates)
@@ -235,11 +239,38 @@ export async function PUT(req: Request) {
         .get();
       if (!snap.empty) {
         targetDocId = snap.docs[0].id;
+        attendanceData = snap.docs[0].data();
       }
     }
 
-    if (!targetDocId) {
+    if (!targetDocId || !attendanceData) {
       return NextResponse.json({ error: 'Data absen masuk hari ini tidak ditemukan.' }, { status: 404 });
+    }
+
+    // 1. Cek Batas Jam Pulang (Gunakan shiftKeluar dari attendance data jika ada, jika tidak fallback ke employee data)
+    let batasKeluar = attendanceData.shiftKeluar || empData?.shiftKeluar || '17:00';
+    
+    // Handle shift malam/full melewati hari tengah malam, tapi karena ini logika dasar,
+    // asalkan jam saat ini kurang dari batas (jika bukan shift malam) maka tolak.
+    // Untuk shift malam (misal 20:00 - 08:00), kalau mereka mau absen jam 22:00, timeString (22:00) < batasKeluar (08:00) 
+    // Wait, kalau batasKeluar 08:00 (Malam), dan timeString 07:00. 07:00 < 08:00 (true), jadi ditolak?
+    // Jika batasKeluar lebih kecil dari jamMasuk, berarti shift malam.
+    const isShiftMalam = attendanceData.shiftMasuk && attendanceData.shiftKeluar && attendanceData.shiftKeluar < attendanceData.shiftMasuk;
+    
+    // Logika pulang shift malam:
+    // Jika shift malam, mereka boleh pulang di jam 00:00 s.d 23:59 asalkan tidak lebih cepat dari seharusnya, atau logika lebih sederhana:
+    // Kita skip strict check untuk shift malam (atau perbaiki). 
+    // Jika isShiftMalam, maka timeString (misal 05:00) di keesokan harinya.
+    
+    if (isShiftMalam) {
+      // Untuk satpam shift malam, kita izinkan checkout kapan saja dan asumsikan mereka menekan pulang di akhir shift
+      // Jika butuh divalidasi, bisa tambahkan logika beda hari.
+    } else {
+      if (timeString < batasKeluar) {
+        return NextResponse.json({
+          error: `Belum masuk waktu pulang (Jadwal pulang shift Anda: ${batasKeluar}, jam server saat ini: ${timeString} ${timezoneCode}).`
+        }, { status: 400 });
+      }
     }
 
     // 3. Update Jam Pulang

@@ -546,6 +546,29 @@ export const subscribeToSalaries = (karyawanId: string | null, callback: (data: 
   }, (err: any) => console.warn('Snapshot listener error:', err.message));
 };
 
+export const deleteAllSalariesHistory = async () => {
+  try {
+    const { collection, getDocs, writeBatch, doc } = await import("firebase/firestore");
+    if (!db) throw new Error("Firestore belum siap");
+    const snapshot = await getDocs(collection(db, COLL_SALARY));
+    
+    const batch = writeBatch(db);
+    snapshot.docs.forEach((d) => {
+      batch.delete(doc(db, COLL_SALARY, d.id));
+    });
+    await batch.commit();
+    
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("pilar_gaji_karyawan");
+    }
+    
+    return { success: true, count: snapshot.size };
+  } catch (err) {
+    console.error("Gagal menghapus semua riwayat gaji:", err);
+    return { success: false, error: err };
+  }
+};
+
 export const subscribeToNotifications = (userId: string | string[], callback: (data: any[]) => void) => {
   if (!db || !userId) return () => {};
   const ids = Array.isArray(userId) ? userId.filter(Boolean) : [userId];

@@ -46,6 +46,8 @@ export default function EmployeeDashboard() {
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [isInitializingAttendance, setIsInitializingAttendance] = useState(true);
   const [locationText, setLocationText] = useState("Mendeteksi Lokasi...");
+  const [showShiftModal, setShowShiftModal] = useState(false);
+  const [selectedShift, setSelectedShift] = useState({ name: 'Shift Pagi', masuk: '08:00', keluar: '20:00' });
   
   const [stats, setStats] = useState({ hadir: 0, izin: 0, absen: 0 });
   const [recentHistory, setRecentHistory] = useState<any[]>([]);
@@ -331,7 +333,12 @@ export default function EmployeeDashboard() {
     showToast("Data absen direset untuk testing");
   };
 
-  const handleAttendance = (type: "Masuk" | "Pulang") => {
+  const handleAttendance = (type: "Masuk" | "Pulang", shiftOverrides?: any) => {
+    if (type === "Masuk" && !shiftOverrides && currentUser?.posisi?.toLowerCase().includes("satpam")) {
+      setShowShiftModal(true);
+      return;
+    }
+
     setIsLoadingLocation(true);
     setLocationText("Sedang mendapatkan lokasi...");
     
@@ -360,13 +367,21 @@ export default function EmployeeDashboard() {
           try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 15000);
+            
+            const reqBody: any = { lat: latitude, lng: longitude };
+            if (shiftOverrides) {
+              reqBody.shiftName = shiftOverrides.name;
+              reqBody.shiftMasuk = shiftOverrides.masuk;
+              reqBody.shiftKeluar = shiftOverrides.keluar;
+            }
+
             const res = await fetch("/api/attendance", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${idToken}`
               },
-              body: JSON.stringify({ lat: latitude, lng: longitude }),
+              body: JSON.stringify(reqBody),
               signal: controller.signal
             });
             clearTimeout(timeoutId);
@@ -458,11 +473,11 @@ export default function EmployeeDashboard() {
               const y = now.getFullYear();
               const dateStr = `${d}/${m}/${y}`;
 
-              const batasShift = currentUser?.shiftMasuk || "08:00";
+              const batasShift = shiftOverrides?.masuk || currentUser?.shiftMasuk || "08:00";
               const isLate = timeStr > batasShift;
               const attStatus = isLate ? "Terlambat" : "Hadir";
-
-              const docId = await recordCheckIn({
+              
+              const newAttData: any = {
                 karyawanId: currentUser?.id || auth.currentUser?.uid,
                 karyawanNama: currentUser?.nama || "Karyawan",
                 tanggal: dateStr,
@@ -470,7 +485,15 @@ export default function EmployeeDashboard() {
                 jamKeluar: null,
                 status: attStatus,
                 koordinatMasuk: { lat: latitude, lng: longitude }
-              });
+              };
+              
+              if (shiftOverrides) {
+                newAttData.shiftName = shiftOverrides.name;
+                newAttData.shiftMasuk = shiftOverrides.masuk;
+                newAttData.shiftKeluar = shiftOverrides.keluar;
+              }
+
+              const docId = await recordCheckIn(newAttData);
 
               if (docId) {
                 setTimeCheckin(timeStr);
@@ -784,6 +807,71 @@ export default function EmployeeDashboard() {
           <span className="text-[10px] font-medium">Pengaturan</span>
         </Link>
       </nav>
+
+      {/* Modal Pilih Shift Khusus Satpam (Full Screen) */}
+      {showShiftModal && (
+        <div className="absolute inset-0 bg-pilar-darker z-50 flex flex-col p-6 animate-slide-up overflow-y-auto">
+          <div className="mt-8 mb-8">
+            <div className="w-12 h-12 bg-pilar-gold/10 rounded-full flex items-center justify-center mb-4 shadow-[0_0_15px_rgba(234,179,8,0.2)]">
+               <i className="fa-solid fa-business-time text-pilar-gold text-2xl"></i>
+            </div>
+            <h3 className="text-2xl font-black text-white mb-2">Pilih Shift Anda</h3>
+            <p className="text-sm text-gray-400 leading-relaxed">Tentukan jadwal shift Anda hari ini. Jam ini akan digunakan untuk menentukan batas absen masuk dan pulang Anda.</p>
+          </div>
+          
+          <div className="space-y-4 flex-1">
+            {[
+              { name: 'Shift Pagi', masuk: '08:00', keluar: '20:00', label: '08.00 - 20.00' },
+              { name: 'Shift Malam', masuk: '20:00', keluar: '08:00', label: '20.00 - 08.00' },
+              { name: 'Shift Full', masuk: '08:00', keluar: '08:00', label: '08.00 - 08.00 (24 Jam)' },
+            ].map((shift, i) => (
+              <button
+                key={i}
+                onClick={() => setSelectedShift(shift)}
+                className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${
+                  selectedShift.name === shift.name
+                    ? 'bg-pilar-gold/10 border-pilar-gold text-white shadow-[0_0_20px_rgba(234,179,8,0.15)]'
+                    : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10'
+                }`}
+              >
+                <div className="flex flex-col items-start">
+                  <span className={`font-black text-lg ${selectedShift.name === shift.name ? 'text-pilar-gold' : 'text-gray-300'}`}>
+                    {shift.name}
+                  </span>
+                  <span className={`text-sm mt-1 font-medium ${selectedShift.name === shift.name ? 'text-white' : 'text-gray-500'}`}>
+                    {shift.label}
+                  </span>
+                </div>
+                {selectedShift.name === shift.name ? (
+                  <div className="w-8 h-8 rounded-full bg-pilar-gold flex items-center justify-center shadow-lg">
+                    <i className="fa-solid fa-check text-pilar-darker font-bold"></i>
+                  </div>
+                ) : (
+                  <div className="w-8 h-8 rounded-full border-2 border-gray-600"></div>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-8 mb-4 space-y-3 pb-8">
+            <button 
+              onClick={() => {
+                setShowShiftModal(false);
+                handleAttendance("Masuk", selectedShift);
+              }}
+              className="w-full py-4 rounded-xl bg-pilar-gold text-pilar-darker font-bold text-lg shadow-neon hover:bg-yellow-400 active:scale-[0.98] transition-all"
+            >
+              Konfirmasi & Absen Masuk
+            </button>
+            <button 
+              onClick={() => setShowShiftModal(false)}
+              className="w-full py-4 rounded-xl bg-white/5 border border-white/10 text-white font-semibold text-base hover:bg-white/10 active:scale-[0.98] transition-all"
+            >
+              Batal
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Toast Notification Container */}
       <div className="absolute top-4 left-1/2 transform -translate-x-1/2 w-11/12 max-w-sm z-50 flex flex-col gap-2 pointer-events-auto">

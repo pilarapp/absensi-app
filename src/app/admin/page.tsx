@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import dynamic from "next/dynamic";
 import CustomSelect from "@/components/CustomSelect";
-import { subscribeToRequests, updateRequestStatus, deleteRequest, deleteAllRequestHistory, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs, subscribeToPositions, addPosition, DEFAULT_POSITIONS, PositionItem, checkAdminRole, subscribeToAdmins, AdminAccount, SuratPeringatan, subscribeToSuratPeringatan, addSuratPeringatan, updateSuratPeringatan, deleteSuratPeringatan, TIMEZONE_OPTIONS, DEFAULT_COMPANY_SETTINGS, CompanySettings, updateCompanySettings, subscribeToCompanySettings } from "@/lib/db";
+import { subscribeToRequests, updateRequestStatus, deleteRequest, deleteAllRequestHistory, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, deleteAllSalariesHistory, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs, subscribeToPositions, addPosition, DEFAULT_POSITIONS, PositionItem, checkAdminRole, subscribeToAdmins, AdminAccount, SuratPeringatan, subscribeToSuratPeringatan, addSuratPeringatan, updateSuratPeringatan, deleteSuratPeringatan, TIMEZONE_OPTIONS, DEFAULT_COMPANY_SETTINGS, CompanySettings, updateCompanySettings, subscribeToCompanySettings } from "@/lib/db";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
@@ -1261,6 +1261,32 @@ export default function AdminDesktopPage() {
     } catch (error) {
       showToast("Gagal membuat file Excel.");
     }
+  };
+
+  const handleDeleteAllRiwayatGaji = async () => {
+    if (!isSuperAdmin) {
+      showToast("Hanya Super Admin yang berhak menghapus riwayat gaji.");
+      return;
+    }
+    
+    setConfirmModal({
+      isOpen: true,
+      title: "Hapus Semua Riwayat Gaji",
+      message: "PERINGATAN KERAS: Apakah Anda yakin ingin menghapus SELURUH Riwayat Pencairan Gaji? Tindakan ini tidak dapat dibatalkan dan semua rekaman slip gaji akan hilang dari sistem!",
+      variant: "danger",
+      confirmText: "Ya, Hapus Semua",
+      icon: "fa-solid fa-triangle-exclamation",
+      onConfirm: async () => {
+        const res = await deleteAllSalariesHistory();
+        if (res.success) {
+          showToast(`Berhasil menghapus ${res.count} riwayat pencairan gaji.`);
+          setRiwayatGaji([]); // Update UI seketika tanpa refresh
+        } else {
+          showToast("Gagal menghapus riwayat gaji.");
+        }
+        setConfirmModal(null);
+      }
+    });
   };
 
   // CRUD Karyawan Functions
@@ -3873,12 +3899,24 @@ export default function AdminDesktopPage() {
                     <h3 className="font-extrabold text-gray-800 text-xl tracking-tight">Riwayat Pencairan Gaji</h3>
                     <p className="text-sm text-gray-500">Daftar slip gaji karyawan yang telah berhasil dicairkan.</p>
                   </div>
-                  <button 
-                    onClick={handleExportGaji}
-                    className="bg-pilar-darker hover:bg-black text-pilar-gold font-bold px-6 py-2.5 rounded-xl shadow-md hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20 transition-all flex items-center justify-center"
-                  >
-                    <span>Export Excel</span>
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    <button 
+                      onClick={handleExportGaji}
+                      className="bg-pilar-darker hover:bg-black text-pilar-gold font-bold px-6 py-2.5 rounded-xl shadow-md hover:shadow-lg focus:ring-4 focus:ring-pilar-darker/20 transition-all flex items-center justify-center"
+                    >
+                      <span>Export Excel</span>
+                    </button>
+                    {isSuperAdmin && (
+                      <button 
+                        onClick={handleDeleteAllRiwayatGaji}
+                        className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold px-4 py-2.5 rounded-xl shadow-sm hover:shadow focus:ring-4 focus:ring-red-100 transition-all flex items-center justify-center space-x-2"
+                        title="Hapus Semua Riwayat (Khusus Super Admin)"
+                      >
+                        <i className="fa-solid fa-trash-can"></i>
+                        <span className="hidden sm:inline">Hapus Semua</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 
                 <div className="overflow-x-auto p-6 -mt-2">
