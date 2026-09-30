@@ -549,12 +549,13 @@ export const subscribeToSalaries = (karyawanId: string | null, callback: (data: 
 export const deleteAllSalariesHistory = async () => {
   try {
     const { collection, getDocs, writeBatch, doc } = await import("firebase/firestore");
-    if (!db) throw new Error("Firestore belum siap");
-    const snapshot = await getDocs(collection(db, COLL_SALARY));
+    const currentDb = db;
+    if (!currentDb) throw new Error("Firestore belum siap");
+    const snapshot = await getDocs(collection(currentDb, COLL_SALARY));
     
-    const batch = writeBatch(db);
+    const batch = writeBatch(currentDb);
     snapshot.docs.forEach((d) => {
-      batch.delete(doc(db, COLL_SALARY, d.id));
+      batch.delete(doc(currentDb, COLL_SALARY, d.id));
     });
     await batch.commit();
     
