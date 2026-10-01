@@ -207,7 +207,7 @@ export default function EmployeeDashboard() {
       setRecentHistory(combinedHistory.slice(0, 5));
     };
 
-    const init = async (empId: string) => {
+    const init = async (empData: any) => {
       try {
         const savedAtt = localStorage.getItem("pilar_today_attendance");
         if (savedAtt) {
@@ -230,13 +230,25 @@ export default function EmployeeDashboard() {
         }
         
         // Selalu sinkronkan dengan database server agar status absensi 100% presisi
-        await fetchServerAtt(empId);
-        await fetchHistoryData(empId);
+        await fetchServerAtt(empData.id);
+        await fetchHistoryData(empData.id);
+
+        let locName = "Lokasi Standby";
+        if (empData?.lokasiId && empData.lokasiId !== "all") {
+           const { fetchLocations } = await import("@/lib/db");
+           const locs = await fetchLocations();
+           const assignedLoc = locs.find((l:any) => l.id === empData.lokasiId);
+           if (assignedLoc) locName = assignedLoc.nama;
+        } else if (empData?.lokasiId === "all") {
+           locName = "Bebas (Semua Cabang)";
+        }
+        setLocationText(locName);
+
       } catch (e) {
         console.error("Error init attendance:", e);
+        setLocationText("Lokasi Standby");
       } finally {
         setIsInitializingAttendance(false);
-        setLocationText("");
       }
     };
     
@@ -280,7 +292,7 @@ export default function EmployeeDashboard() {
     if (isAlreadyChecked && cachedEmp) {
       setCurrentUser(cachedEmp);
       setIsAuthChecking(false);
-      init(cachedEmp.id);
+      init(cachedEmp);
     }
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
@@ -294,7 +306,7 @@ export default function EmployeeDashboard() {
           finishLoading(() => {
             setCurrentUser(emp);
             setIsAuthChecking(false);
-            init(emp.id);
+            init(emp);
           });
         } else {
           sessionStorage.removeItem("pilar_session_checked");
