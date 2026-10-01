@@ -247,26 +247,28 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: 'Data absen masuk hari ini tidak ditemukan.' }, { status: 404 });
     }
 
-    // 1. Cek Batas Jam Pulang (Gunakan shiftKeluar dari attendance data jika ada, jika tidak fallback ke employee data)
+    // 1. Cek Batas Jam Pulang
     let batasKeluar = attendanceData.shiftKeluar || empData?.shiftKeluar || '17:00';
+    let batasMasuk = attendanceData.shiftMasuk || empData?.shiftMasuk || '08:00';
     
-    // Handle shift malam/full melewati hari tengah malam, tapi karena ini logika dasar,
-    // asalkan jam saat ini kurang dari batas (jika bukan shift malam) maka tolak.
-    // Untuk shift malam (misal 20:00 - 08:00), kalau mereka mau absen jam 22:00, timeString (22:00) < batasKeluar (08:00) 
-    // Wait, kalau batasKeluar 08:00 (Malam), dan timeString 07:00. 07:00 < 08:00 (true), jadi ditolak?
-    // Jika batasKeluar lebih kecil dari jamMasuk, berarti shift malam.
-    const isShiftMalam = attendanceData.shiftMasuk && attendanceData.shiftKeluar && attendanceData.shiftKeluar < attendanceData.shiftMasuk;
+    // Jika jam pulang lebih kecil atau sama dengan jam masuk, berarti shift ini melewati tengah malam (atau shift 24 jam)
+    const isCrossDayShift = batasKeluar <= batasMasuk;
     
-    // Logika pulang shift malam:
-    // Jika shift malam, mereka boleh pulang di jam 00:00 s.d 23:59 asalkan tidak lebih cepat dari seharusnya, atau logika lebih sederhana:
-    // Kita skip strict check untuk shift malam (atau perbaiki). 
-    // Jika isShiftMalam, maka timeString (misal 05:00) di keesokan harinya.
-    
-    if (isShiftMalam) {
-      // Untuk satpam shift malam, kita izinkan checkout kapan saja dan asumsikan mereka menekan pulang di akhir shift
-      // Jika butuh divalidasi, bisa tambahkan logika beda hari.
+    if (isCrossDayShift) {
+      if (tanggal === attendanceData.tanggal) {
+        // Jika masih di hari yang sama dengan absen masuk, belum boleh pulang
+        return NextResponse.json({
+          error: `Belum masuk waktu pulang (Jadwal pulang shift Anda: besok jam ${batasKeluar}).`
+        }, { status: 400 });
+      } else if (tanggal > attendanceData.tanggal && timeString < batasKeluar) {
+        // Jika sudah beda hari tapi belum mencapai jam pulang
+        return NextResponse.json({
+          error: `Belum masuk waktu pulang (Jadwal pulang shift Anda: ${batasKeluar}, jam server saat ini: ${timeString} ${timezoneCode}).`
+        }, { status: 400 });
+      }
     } else {
-      if (timeString < batasKeluar) {
+      // Shift normal (pulang di hari yang sama)
+      if (tanggal === attendanceData.tanggal && timeString < batasKeluar) {
         return NextResponse.json({
           error: `Belum masuk waktu pulang (Jadwal pulang shift Anda: ${batasKeluar}, jam server saat ini: ${timeString} ${timezoneCode}).`
         }, { status: 400 });

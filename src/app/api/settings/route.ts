@@ -97,3 +97,31 @@ export async function PUT(req: Request) {
     );
   }
 }
+
+export async function POST(req: Request) {
+  try {
+    const caller = await verifyCaller(req);
+    if (!caller || !caller.isAdmin) {
+      return NextResponse.json({ error: 'Akses Ditolak.' }, { status: 403 });
+    }
+
+    const body = await req.json();
+    const updateData = {
+      ...body,
+      updatedAt: new Date().toISOString(),
+      updatedBy: caller.nama || caller.email,
+      updatedByEmail: caller.email
+    };
+
+    await adminDb.collection('settings').doc('company_settings').set(updateData, { merge: true });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Pengaturan berhasil diperbarui.',
+      settings: updateData
+    });
+  } catch (error: any) {
+    console.error('Error POST /api/settings:', error);
+    return NextResponse.json({ error: 'Gagal memperbarui pengaturan perusahaan' }, { status: 500 });
+  }
+}

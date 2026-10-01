@@ -40,6 +40,7 @@ export default function EmployeeDashboard() {
   const [currentDate, setCurrentDate] = useState("");
   const [appTimezone, setAppTimezone] = useState("Asia/Tokyo");
   const [appTimezoneCode, setAppTimezoneCode] = useState("JST");
+  const [globalShifts, setGlobalShifts] = useState<{name: string; masuk: string; keluar: string}[]>([]);
   const [timeCheckin, setTimeCheckin] = useState("--:--");
   const [timeCheckout, setTimeCheckout] = useState("--:--");
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
@@ -96,6 +97,9 @@ export default function EmployeeDashboard() {
       if (settings?.timezone) {
         setAppTimezone(settings.timezone);
         setAppTimezoneCode(settings.timezoneCode || "JST");
+      }
+      if (settings?.globalShifts) {
+        setGlobalShifts(settings.globalShifts);
       }
     });
     return () => unsub();
@@ -334,7 +338,7 @@ export default function EmployeeDashboard() {
   };
 
   const handleAttendance = (type: "Masuk" | "Pulang", shiftOverrides?: any) => {
-    if (type === "Masuk" && !shiftOverrides && currentUser?.posisi?.toLowerCase().includes("satpam")) {
+    if (type === "Masuk" && !shiftOverrides && (currentUser?.tipeKerja === "Shift" || currentUser?.posisi?.toLowerCase().includes("satpam"))) {
       setShowShiftModal(true);
       return;
     }
@@ -820,11 +824,11 @@ export default function EmployeeDashboard() {
           </div>
           
           <div className="space-y-4 flex-1">
-            {[
+            {(globalShifts.length > 0 ? globalShifts.map((s: any) => ({...s, label: `${s.masuk} - ${s.keluar}`})) : [
               { name: 'Shift Pagi', masuk: '08:00', keluar: '20:00', label: '08.00 - 20.00' },
               { name: 'Shift Malam', masuk: '20:00', keluar: '08:00', label: '20.00 - 08.00' },
               { name: 'Shift Full', masuk: '08:00', keluar: '08:00', label: '08.00 - 08.00 (24 Jam)' },
-            ].map((shift, i) => (
+            ]).map((shift: any, i: number) => (
               <button
                 key={i}
                 onClick={() => setSelectedShift(shift)}

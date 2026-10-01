@@ -41,6 +41,8 @@ type Karyawan = {
   lokasiId: string;
   shiftMasuk?: string;
   shiftKeluar?: string;
+  tipeKerja?: "Fix Time" | "Shift";
+  shifts?: {name: string; masuk: string; keluar: string}[];
   gajiPokok: number;
   bpjsTk?: boolean;
   bpjsKes?: boolean;
@@ -420,6 +422,7 @@ export default function AdminDesktopPage() {
 
   // Timezone State
   const [companySettings, setCompanySettings] = useState<CompanySettings>(DEFAULT_COMPANY_SETTINGS);
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [selectedTimezone, setSelectedTimezone] = useState<string>("Asia/Tokyo");
   const [isSavingTimezone, setIsSavingTimezone] = useState(false);
   const [previewTime, setPreviewTime] = useState("");
@@ -474,6 +477,12 @@ export default function AdminDesktopPage() {
   const [formLokasiId, setFormLokasiId] = useState("all");
   const [formShiftMasuk, setFormShiftMasuk] = useState("08:00");
   const [formShiftKeluar, setFormShiftKeluar] = useState("17:00");
+  const [formTipeKerja, setFormTipeKerja] = useState<"Fix Time" | "Shift">("Fix Time");
+  const [formShifts, setFormShifts] = useState<{name: string, masuk: string, keluar: string}[]>([
+    {name: 'Shift Pagi', masuk: '08:00', keluar: '20:00'},
+    {name: 'Shift Malam', masuk: '20:00', keluar: '08:00'},
+    {name: 'Shift Full', masuk: '08:00', keluar: '08:00'}
+  ]);
   const [formGajiPokok, setFormGajiPokok] = useState("0");
   const [formBpjsTk, setFormBpjsTk] = useState(true);
   const [formBpjsKes, setFormBpjsKes] = useState(true);
@@ -1302,6 +1311,12 @@ export default function AdminDesktopPage() {
     setFormLokasiId("all");
     setFormShiftMasuk("08:00");
     setFormShiftKeluar("17:00");
+    setFormTipeKerja("Fix Time");
+    setFormShifts([
+      {name: 'Shift Pagi', masuk: '08:00', keluar: '20:00'},
+      {name: 'Shift Malam', masuk: '20:00', keluar: '08:00'},
+      {name: 'Shift Full', masuk: '08:00', keluar: '08:00'}
+    ]);
     setFormGajiPokok("0");
     setFormBpjsTk(true);
     setFormBpjsKes(true);
@@ -1323,6 +1338,12 @@ export default function AdminDesktopPage() {
     setFormLokasiId(k.lokasiId || "all");
     setFormShiftMasuk(k.shiftMasuk || "08:00");
     setFormShiftKeluar(k.shiftKeluar || "17:00");
+    setFormTipeKerja(k.tipeKerja || "Fix Time");
+    setFormShifts(k.shifts || [
+      {name: 'Shift Pagi', masuk: '08:00', keluar: '20:00'},
+      {name: 'Shift Malam', masuk: '20:00', keluar: '08:00'},
+      {name: 'Shift Full', masuk: '08:00', keluar: '08:00'}
+    ]);
     setFormGajiPokok(k.gajiPokok ? k.gajiPokok.toString() : "0");
     setFormBpjsTk(k.bpjsTk !== undefined ? k.bpjsTk : true);
     setFormBpjsKes(k.bpjsKes !== undefined ? k.bpjsKes : true);
@@ -1415,6 +1436,7 @@ export default function AdminDesktopPage() {
           lokasiId: formLokasiId || "all",
           shiftMasuk: formShiftMasuk || "08:00",
           shiftKeluar: formShiftKeluar || "17:00",
+          tipeKerja: formTipeKerja,
           gajiPokok: parseInt(formGajiPokok) || 0,
           bpjsTk: formBpjsTk,
           bpjsKes: formBpjsKes
@@ -2036,16 +2058,33 @@ export default function AdminDesktopPage() {
                 {/* 4. Waktu & Kompensasi */}
                 <div>
                   <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2 flex items-center"><i className="fa-solid fa-clock mr-2"></i> 4. Waktu & Kompensasi</h4>
-                  <div className="grid grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Shift Masuk</label>
-                      <input type="time" value={formShiftMasuk} onChange={(e) => setFormShiftMasuk(e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Shift Pulang</label>
-                      <input type="time" value={formShiftKeluar} onChange={(e) => setFormShiftKeluar(e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white" />
-                    </div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-bold text-gray-700 mb-1.5">Tipe Waktu Kerja</label>
+                    <select value={formTipeKerja} onChange={(e) => setFormTipeKerja(e.target.value as any)} className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white">
+                      <option value="Fix Time">Fix Time (Jam Tetap)</option>
+                      <option value="Shift">Shift (Pilih saat Absen)</option>
+                    </select>
                   </div>
+
+                  {formTipeKerja === 'Fix Time' ? (
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1.5">Shift Masuk</label>
+                        <input type="time" value={formShiftMasuk} onChange={(e) => setFormShiftMasuk(e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1.5">Shift Pulang</label>
+                        <input type="time" value={formShiftKeluar} onChange={(e) => setFormShiftKeluar(e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all text-sm bg-gray-50/50 focus:bg-white" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 mb-4 flex items-start gap-3">
+                      <i className="fa-solid fa-circle-info text-blue-500 mt-0.5"></i>
+                      <p className="text-xs text-blue-800 leading-relaxed">
+                        Karyawan dengan tipe <strong>Shift</strong> akan memilih jadwal shift secara dinamis saat melakukan absensi. Pilihan shift dan jamnya diatur secara global di menu Pengaturan Perusahaan.
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1.5">Gaji Pokok (Per Bulan)</label>
                     <div className="relative">
@@ -2347,6 +2386,7 @@ export default function AdminDesktopPage() {
             <span className="whitespace-nowrap">Penggajian</span>
           </button>
 
+          
           <button 
             onClick={() => setActiveMenu("pengaturan")}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${activeMenu === "pengaturan" ? "bg-pilar-gold text-pilar-darker font-bold" : "text-pilar-textSecondary hover:bg-white/10 hover:text-white"}`}
@@ -3992,10 +4032,26 @@ export default function AdminDesktopPage() {
           )}
 
           {/* PENGATURAN TAB */}
+          
+          
+  
           {activeMenu === "pengaturan" && (
             <div className="space-y-6 animate-slide-up">
               {/* Sub-tab Navigation */}
-              <div className="bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 flex items-center space-x-2 max-w-3xl flex-wrap">
+              <div className="bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 flex items-center space-x-2 w-full overflow-x-auto">
+                <button
+                  type="button"
+                  onClick={() => setPengaturanSubTab("shift")}
+                  className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center space-x-2 ${
+                    pengaturanSubTab === "shift"
+                      ? "bg-pilar-darker text-pilar-gold shadow-md"
+                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
+                >
+                  <i className="fa-solid fa-clock-rotate-left"></i>
+                  <span>Jam Shift</span>
+                </button>
+                
                 <button
                   type="button"
                   onClick={() => setPengaturanSubTab("lokasi")}
@@ -4067,6 +4123,105 @@ export default function AdminDesktopPage() {
                   </button>
                 )}
               </div>
+
+              
+              {/* Sub-tab 0: SHIFT */}
+              {pengaturanSubTab === "shift" && (
+                <div className="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100/60 overflow-hidden animate-slide-up">
+                  <div className="p-8 border-b border-gray-100 bg-gray-50/50">
+                    <h3 className="font-extrabold text-gray-800 text-xl tracking-tight">Manajemen Shift Global</h3>
+                    <p className="text-sm text-gray-500 mt-1">Atur jadwal shift standar yang akan dipilih karyawan.</p>
+                  </div>
+                  
+                  <div className="p-8">
+                  
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 rounded-xl bg-pilar-gold/10 flex items-center justify-center">
+                      <i className="fa-solid fa-clock-rotate-left text-pilar-gold"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-gray-900">Pengaturan Jam Shift (Global)</h3>
+                      <p className="text-sm text-gray-500 mt-0.5">Atur pilihan shift yang akan muncul saat karyawan tipe Shift melakukan absen masuk.</p>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {(companySettings?.globalShifts || [
+                      { name: 'Shift Pagi', masuk: '08:00', keluar: '20:00' },
+                      { name: 'Shift Malam', masuk: '20:00', keluar: '08:00' },
+                      { name: 'Shift Full', masuk: '08:00', keluar: '08:00' },
+                    ]).map((shift, idx) => (
+                      <div key={idx} className="flex gap-4 items-center p-4 bg-gray-50 rounded-xl border border-gray-100">
+                        <div className="flex-1">
+                          <label className="block text-xs font-bold text-gray-700 mb-1">Nama Shift</label>
+                          <input type="text" value={shift.name} onChange={(e) => {
+                            const newShifts = [...(companySettings.globalShifts || [
+                              { name: 'Shift Pagi', masuk: '08:00', keluar: '20:00' },
+                              { name: 'Shift Malam', masuk: '20:00', keluar: '08:00' },
+                              { name: 'Shift Full', masuk: '08:00', keluar: '08:00' }
+                            ])];
+                            newShifts[idx].name = e.target.value;
+                            setCompanySettings({ ...companySettings, globalShifts: newShifts });
+                          }} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-pilar-darker" />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs font-bold text-gray-700 mb-1">Jam Masuk</label>
+                          <input type="time" value={shift.masuk} onChange={(e) => {
+                            const newShifts = [...(companySettings.globalShifts || [
+                              { name: 'Shift Pagi', masuk: '08:00', keluar: '20:00' },
+                              { name: 'Shift Malam', masuk: '20:00', keluar: '08:00' },
+                              { name: 'Shift Full', masuk: '08:00', keluar: '08:00' }
+                            ])];
+                            newShifts[idx].masuk = e.target.value;
+                            setCompanySettings({ ...companySettings, globalShifts: newShifts });
+                          }} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-pilar-darker" />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs font-bold text-gray-700 mb-1">Jam Keluar</label>
+                          <input type="time" value={shift.keluar} onChange={(e) => {
+                            const newShifts = [...(companySettings.globalShifts || [
+                              { name: 'Shift Pagi', masuk: '08:00', keluar: '20:00' },
+                              { name: 'Shift Malam', masuk: '20:00', keluar: '08:00' },
+                              { name: 'Shift Full', masuk: '08:00', keluar: '08:00' }
+                            ])];
+                            newShifts[idx].keluar = e.target.value;
+                            setCompanySettings({ ...companySettings, globalShifts: newShifts });
+                          }} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-pilar-darker" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex justify-end mt-6">
+                    <button 
+                      onClick={async () => {
+                        setIsUpdatingSettings(true);
+                        try {
+                          await fetch('/api/settings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ globalShifts: companySettings.globalShifts })
+                          });
+                          showToast('Pengaturan shift berhasil disimpan!', 'success');
+                        } catch (err) {
+                          showToast('Gagal menyimpan pengaturan shift', 'error');
+                        } finally {
+                          setIsUpdatingSettings(false);
+                        }
+                      }}
+                      disabled={isUpdatingSettings}
+                      className="px-6 py-2.5 bg-pilar-darker text-white text-sm font-bold rounded-xl hover:bg-pilar-dark/90 transition-all shadow-lg flex items-center gap-2"
+                    >
+                      {isUpdatingSettings ? (
+                        <><i className="fa-solid fa-circle-notch fa-spin"></i> Menyimpan...</>
+                      ) : (
+                        <><i className="fa-solid fa-save"></i> Simpan Shift</>
+                      )}
+                    </button>
+                  </div>
+                  </div>
+                </div>
+              )}
 
               {/* Sub-tab 1: LOKASI */}
               {pengaturanSubTab === "lokasi" && (
@@ -4319,9 +4474,10 @@ export default function AdminDesktopPage() {
                         )}
                       </button>
                     </div>
-                  </div>
+                
                 </div>
-              )}
+              </div>
+            )}
 
               {/* Sub-tab 2: AUDIT LOGS */}
               {pengaturanSubTab === "audit" && (

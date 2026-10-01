@@ -10,7 +10,7 @@ export async function POST(req: Request) {
     }
 
     const data = await req.json();
-    const { nama, email, password, posisi, status, lokasiId, gajiPokok, id, shiftMasuk, shiftKeluar, noInduk, noWa, bpjsTk, bpjsKes } = data;
+    const { nama, email, password, posisi, status, lokasiId, gajiPokok, id, shiftMasuk, shiftKeluar, tipeKerja, noInduk, noWa, bpjsTk, bpjsKes } = data;
 
     if (!email || !nama) {
       return NextResponse.json({ error: 'Email and name are required' }, { status: 400 });
@@ -95,6 +95,7 @@ export async function POST(req: Request) {
       lokasiId: lokasiId || "all",
       shiftMasuk: shiftMasuk || "08:00",
       shiftKeluar: shiftKeluar || "17:00",
+      tipeKerja: tipeKerja || "Fix Time",
       gajiPokok: Number(gajiPokok) || 0,
       bpjsTk: bpjsTk !== undefined ? Boolean(bpjsTk) : true,
       bpjsKes: bpjsKes !== undefined ? Boolean(bpjsKes) : true,

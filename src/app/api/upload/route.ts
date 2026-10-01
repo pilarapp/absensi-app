@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
 
       uploadedFiles.push({
         name: file.name,
-        url: `${publicUrl}/${safeName}`,
+        url: `/storage/${safeName}`,
       });
     }
 

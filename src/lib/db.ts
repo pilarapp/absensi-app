@@ -1040,6 +1040,7 @@ export interface CompanySettings {
   timezone: string;
   timezoneCode: string;
   timezoneLabel: string;
+  globalShifts?: { name: string; masuk: string; keluar: string }[];
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -1078,7 +1079,12 @@ export const TIMEZONE_OPTIONS = [
 export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   timezone: "Asia/Tokyo",
   timezoneCode: "JST",
-  timezoneLabel: "JST - Jepang (UTC+9)"
+  timezoneLabel: "JST - Jepang (UTC+9)",
+  globalShifts: [
+    { name: 'Shift Pagi', masuk: '08:00', keluar: '20:00' },
+    { name: 'Shift Malam', masuk: '20:00', keluar: '08:00' },
+    { name: 'Shift Full', masuk: '08:00', keluar: '08:00' },
+  ]
 };
 
 export const getCompanySettings = async (): Promise<CompanySettings> => {

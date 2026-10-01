@@ -23,10 +23,15 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["firebase-admin"],
   reactStrictMode: false,
   async rewrites() {
+    const r2Url = process.env.R2_PUBLIC_URL || "https://pub-2ebea01d20e4406287ae900adafe0102.r2.dev";
     return [
       {
         source: "/install",
         destination: "/download",
+      },
+      {
+        source: "/storage/:path*",
+        destination: `${r2Url}/:path*`,
       },
     ];
   },
