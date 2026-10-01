@@ -236,7 +236,7 @@ export default function EmployeeDashboard() {
         let locName = "Lokasi Standby";
         if (empData?.lokasiId && empData.lokasiId !== "all") {
            const { fetchLocations } = await import("@/lib/db");
-           const locs = await fetchLocations();
+           const locs = (await fetchLocations()) as any[];
            const assignedLoc = locs.find((l:any) => l.id === empData.lokasiId);
            if (assignedLoc) locName = assignedLoc.nama;
         } else if (empData?.lokasiId === "all") {
