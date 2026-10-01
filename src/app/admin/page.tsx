@@ -130,7 +130,7 @@ export default function AdminDesktopPage() {
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [auditSearch, setAuditSearch] = useState<string>("");
   const [auditFilterAction, setAuditFilterAction] = useState<string>("all");
-  const [pengaturanSubTab, setPengaturanSubTab] = useState<"lokasi" | "waktu" | "audit" | "admins">("lokasi");
+  const [pengaturanSubTab, setPengaturanSubTab] = useState<"shift" | "lokasi" | "waktu" | "audit" | "admins">("shift");
   const [karyawanSubTab, setKaryawanSubTab] = useState<"karyawan" | "sp">("karyawan");
 
   // State Modal & Form Manajemen Admin
