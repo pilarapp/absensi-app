@@ -5295,7 +5295,7 @@ export default function AdminDesktopPage() {
                     </div>
                     <span className="text-[10px] text-gray-200 font-normal print:hidden">Klik tombol untuk melihat / mengunduh file asli</span>
                   </div>
-                  <div className="p-4 bg-gray-50/50 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  <div className="p-4 bg-gray-50/50 flex flex-col gap-3">
                     {selectedPengajuan.files.map((file: any, fIdx: number) => {
                       const fileUrl = typeof file === 'string' ? file : file?.url;
                       const fileName = typeof file === 'string' ? file.split('/').pop() : (file?.name || `Berkas-${fIdx + 1}`);
@@ -5303,48 +5303,37 @@ export default function AdminDesktopPage() {
                       const isPdf = fileUrl && (/\.pdf($|\?)/i.test(fileUrl) || (typeof file === 'object' && file?.type === 'application/pdf'));
 
                       return (
-                        <div key={fIdx} className="group border border-gray-200 hover:border-pilar-gold rounded-xl p-3 bg-white transition-all shadow-sm flex flex-col justify-between">
-                          <div className="flex items-start space-x-3 mb-2">
-                            <div className="w-10 h-10 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center shrink-0 shadow-inner group-hover:border-pilar-gold/50 transition-colors">
-                              {isImage ? (
-                                <i className="fa-solid fa-image text-blue-500 text-lg"></i>
+                        <div key={fIdx} className="group border border-gray-200 hover:border-pilar-gold rounded-xl p-3 sm:px-4 sm:py-3 bg-white transition-all shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                          <div className="flex items-center space-x-4 flex-1 overflow-hidden w-full sm:w-auto">
+                            <div className="w-12 h-12 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center shrink-0 shadow-inner group-hover:border-pilar-gold/50 transition-colors overflow-hidden">
+                              {isImage && fileUrl ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img src={fileUrl} alt={fileName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                               ) : isPdf ? (
-                                <i className="fa-solid fa-file-pdf text-red-500 text-lg"></i>
+                                <i className="fa-solid fa-file-pdf text-red-500 text-xl"></i>
                               ) : (
-                                <i className="fa-solid fa-file-lines text-amber-500 text-lg"></i>
+                                <i className="fa-solid fa-file-lines text-amber-500 text-xl"></i>
                               )}
                             </div>
                             <div className="overflow-hidden flex-1">
-                              <p className="font-bold text-xs text-gray-900 truncate" title={fileName}>
+                              <p className="font-bold text-sm text-gray-900 truncate" title={fileName}>
                                 {fileName}
                               </p>
-                              <span className="text-[10px] text-gray-400 block mt-0.5 font-medium">
+                              <span className="text-xs text-gray-400 block mt-0.5 font-medium">
                                 {isImage ? "Gambar / Foto" : isPdf ? "Dokumen PDF" : "File Lampiran"}
                               </span>
                             </div>
                           </div>
                           
-                          {/* Image preview thumbnail */}
-                          {isImage && fileUrl && (
-                            <div className="mb-2.5 w-full h-28 rounded-lg overflow-hidden bg-gray-100 border border-gray-200 relative group/img">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img 
-                                src={fileUrl} 
-                                alt={fileName} 
-                                className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300" 
-                              />
-                            </div>
-                          )}
-
                           {fileUrl ? (
                             <a 
                               href={fileUrl} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="print:hidden w-full py-2 px-3 bg-pilar-darker hover:bg-black text-pilar-gold font-bold text-center rounded-lg text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm hover:shadow"
+                              className="print:hidden w-full sm:w-auto whitespace-nowrap py-2.5 px-5 bg-pilar-darker hover:bg-black text-pilar-gold font-bold text-center rounded-lg text-xs transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow"
                             >
                               <i className="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-                              <span>Buka / Unduh File</span>
+                              <span>Buka File</span>
                             </a>
                           ) : (
                             <span className="text-[10px] text-gray-400 italic">URL file tidak tersedia</span>
