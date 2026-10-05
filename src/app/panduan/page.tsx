@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function PanduanPage() {
   return (
-    <div className="min-h-screen bg-[#071322] text-gray-200 p-5 font-sans pb-10">
+    <div className="h-full w-full overflow-y-auto scrollable-content bg-[#071322] text-gray-200 p-5 font-sans pb-10">
       <div className="max-w-md mx-auto space-y-6">
         
         {/* Navbar / Header */}
