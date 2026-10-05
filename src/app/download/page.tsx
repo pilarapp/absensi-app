@@ -80,192 +80,81 @@ export default function DownloadPwaPage() {
   };
 
   return (
-    <div className="mobile-container flex flex-col text-pilar-textPrimary mx-auto shadow-2xl relative overflow-hidden bg-pilar-dark">
+    <div className="mobile-container flex flex-col items-center justify-center min-h-screen text-pilar-textPrimary mx-auto relative overflow-hidden bg-[#4355f9]">
       
-      {/* Decorative Glow */}
-      <div className="absolute top-[-10%] left-[-20%] w-60 h-60 bg-pilar-gold/10 rounded-full blur-[70px] pointer-events-none"></div>
-      <div className="absolute bottom-[-10%] right-[-20%] w-60 h-60 bg-blue-600/10 rounded-full blur-[70px] pointer-events-none"></div>
+      {/* Decorative Blur Effect (optional for depth) */}
+      <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-white/10 to-transparent pointer-events-none"></div>
 
-      {/* Header Mobile */}
-      <header className="pt-7 pb-5 px-5 bg-pilar-darker rounded-b-3xl shadow-md z-10 relative text-center border-b border-white/5">
-        <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-pilar-gold/15 text-pilar-gold border border-pilar-gold/30 mb-2 shadow-sm">
-          <i className="fa-solid fa-shield-halved mr-1 text-[9px]"></i> Aplikasi Karyawan Resmi
-        </span>
-
-        <div className="flex items-center justify-center space-x-3 mt-1">
-          <div className="w-12 h-12 rounded-2xl overflow-hidden shadow-lg border border-pilar-gold/40 shrink-0 bg-pilar-darker">
-            <img src="/icon-512.png" alt="PilarAPP" className="w-full h-full object-cover" />
-          </div>
-          <div className="text-left">
-            <h1 className="text-xl font-black text-white tracking-tight leading-none">
-              Pilar<span className="text-pilar-gold">APP</span>
-            </h1>
-            <p className="text-[11px] text-gray-400 font-medium mt-1">PT. Pilar Sentra Solusi</p>
-          </div>
+      {/* Header section (Outside Card) */}
+      <div className="flex items-center w-[85%] max-w-[320px] mb-8 relative z-10">
+        <div className="w-16 h-16 bg-[#4355f9] rounded-2xl shadow-lg shrink-0 flex items-center justify-center overflow-hidden border border-white/10">
+          <img src="/icon-512.png" alt="Icon" className="w-full h-full object-cover opacity-90" />
         </div>
-      </header>
+        <div className="ml-4 flex flex-col justify-center">
+          <h1 className="text-white font-bold text-lg tracking-wide leading-tight">PilarAPP</h1>
+          <p className="text-gray-200 text-xs mt-0.5">PT. Pilar Sentra Solusi</p>
+        </div>
+      </div>
 
-      {/* Main Scrollable Body */}
-      <main className="flex-1 overflow-y-auto scrollable-content px-5 pt-4 pb-6 space-y-4 animate-slide-up relative z-10">
+      {/* Card container */}
+      <div className="w-[85%] max-w-[320px] bg-[#0c1222] rounded-2xl shadow-2xl relative z-10 font-sans border border-[#1e2640]">
         
-        {/* Warning jika di In-App Browser (WhatsApp/IG) */}
-        {showInAppWarning && (
-          <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs flex items-start space-x-2.5 shadow-sm">
-            <i className="fa-solid fa-triangle-exclamation text-amber-400 text-sm mt-0.5 shrink-0"></i>
-            <div>
-              <p className="font-bold text-amber-300">Buka di Browser Utama</p>
-              <p className="mt-0.5 text-gray-300 text-[11px] leading-relaxed">
-                Tekan tombol titik tiga <strong>(⋮)</strong> di atas lalu pilih <strong>Buka di Chrome / Safari</strong> agar dapat dipasang ke layar HP.
-              </p>
-            </div>
-          </div>
-        )}
+        {/* Body Section */}
+        <div className="p-5 flex flex-col space-y-4">
+          
 
-        {/* Notifikasi jika sudah terpasang */}
-        {isInstalled && (
-          <div className="p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 text-xs flex items-center justify-between shadow-sm">
-            <div className="flex items-center space-x-2">
-              <i className="fa-solid fa-circle-check text-emerald-400 text-base"></i>
-              <span className="font-bold text-white text-[11px]">PilarAPP Sudah Terpasang!</span>
+
+          {/* Apple Button */}
+          <button 
+            onClick={() => {
+              if (device === "ios") {
+                alert("Cara Pasang di iOS:\n1. Buka halaman ini di browser Safari.\n2. Tekan tombol Share (ikon panah ke atas) di bawah.\n3. Pilih 'Add to Home Screen' atau 'Tambahkan ke Layar Utama'.");
+              } else {
+                alert("Fitur ini khusus iPhone/iPad. Silakan gunakan tombol Google Play untuk HP Android Anda.");
+              }
+            }} 
+            className="w-full bg-black border border-[#252f4a] rounded-xl p-3 flex items-center justify-center space-x-3 hover:bg-gray-900 transition active:scale-[0.98]"
+          >
+            <i className="fa-brands fa-apple text-white text-3xl"></i>
+            <div className="text-left flex flex-col justify-center">
+              <span className="text-gray-200 text-[10px] leading-none mb-1">Download</span>
+              <span className="text-white text-xl font-semibold leading-none tracking-tight">untuk iOS</span>
             </div>
-            <Link 
-              href="/" 
-              className="px-3 py-1 bg-emerald-500 text-emerald-950 font-extrabold rounded-lg text-xs hover:bg-emerald-400 transition shadow-sm"
-            >
-              Buka App
+          </button>
+
+          {/* Google Play Button */}
+          <button 
+            onClick={() => {
+              if (device === "android" || device === "desktop") {
+                 handleInstallAndroid();
+              } else {
+                 alert("Fitur ini khusus Android. Silakan gunakan tombol App Store untuk iPhone Anda.");
+              }
+            }} 
+            className="w-full bg-black border border-[#252f4a] rounded-xl p-3 flex items-center justify-center space-x-3 hover:bg-gray-900 transition active:scale-[0.98]"
+          >
+            {/* Custom SVG for Google Play Logo to match colors */}
+            <svg className="w-7 h-7" viewBox="0 0 512 512">
+              <path fill="#4caf50" d="M37.3 12.2l340.5 190.8-97.1 94.6z"/>
+              <path fill="#03a9f4" d="M37.3 12.2L12.9 36.6 280.7 297.6l97.1-94.6z"/>
+              <path fill="#ffc107" d="M280.7 297.6L12.9 36.6 37.3 499.8l243.4-202.2z"/>
+              <path fill="#f44336" d="M377.8 203L491 264c12.3 6.9 12.3 24.3 0 31.2L377.8 356.5 280.7 297.6z"/>
+            </svg>
+            <div className="text-left flex flex-col justify-center">
+              <span className="text-gray-200 text-[10px] uppercase font-medium leading-none mb-1">Download</span>
+              <span className="text-white text-xl font-semibold leading-none tracking-tight">untuk Android</span>
+            </div>
+          </button>
+             
+          {/* Text Link Buka Web */}
+          <div className="pt-2 text-center">
+            <Link href="/" className="text-gray-500 text-[11px] hover:text-white underline transition">
+              Abaikan dan langsung buka aplikasi
             </Link>
           </div>
-        )}
 
-
-        {(device === "android" || device === "desktop") && (
-          <div className="space-y-3 animate-fade-in">
-            <div className="bg-pilar-darker/70 backdrop-blur-sm border border-white/10 rounded-2xl p-4 shadow-lg space-y-3">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-base font-bold">
-                  <i className="fa-brands fa-android"></i>
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-sm text-white">Pasang di HP Android</h3>
-                  <p className="text-[11px] text-gray-400">Chrome, Samsung Internet, Edge</p>
-                </div>
-              </div>
-
-              {/* Tombol Pasang Utama */}
-              <button
-                onClick={handleInstallAndroid}
-                className="w-full py-3.5 px-4 rounded-xl bg-pilar-gold hover:bg-amber-400 active:scale-[0.98] text-pilar-darker font-black text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center space-x-2"
-              >
-                <i className="fa-solid fa-download text-sm"></i>
-                <span>{isInstallable ? "PASANG SEKARANG DI ANDROID" : "DOWNLOAD / PASANG PILARAPP"}</span>
-              </button>
-
-              {/* Langkah Manual Android */}
-              <div className="bg-black/40 rounded-xl p-3 border border-white/5 space-y-2 text-[11px] text-gray-300">
-                <p className="font-bold text-pilar-gold flex items-center text-xs">
-                  <i className="fa-solid fa-circle-info mr-1.5"></i>
-                  Cara Pemasangan di Android:
-                </p>
-                <div className="flex items-start space-x-2">
-                  <span className="w-4 h-4 rounded-full bg-white/10 text-white flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5">1</span>
-                  <span>Buka halaman ini di browser <strong>Google Chrome</strong>.</span>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <span className="w-4 h-4 rounded-full bg-white/10 text-white flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5">2</span>
-                  <span>Tekan menu titik tiga <strong>(⋮)</strong> di pojok kanan atas browser.</span>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <span className="w-4 h-4 rounded-full bg-white/10 text-white flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5">3</span>
-                  <span>Pilih <strong className="text-pilar-gold">"Instal aplikasi"</strong> atau <strong className="text-pilar-gold">"Tambahkan ke Layar Utama"</strong>.</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB KONTEN 2: IOS (IPHONE) */}
-        {device === "ios" && (
-          <div className="space-y-3 animate-fade-in">
-            <div className="bg-pilar-darker/70 backdrop-blur-sm border border-white/10 rounded-2xl p-4 shadow-lg space-y-3">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-lg bg-white/10 text-white flex items-center justify-center text-base font-bold">
-                  <i className="fa-brands fa-apple"></i>
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-sm text-white">Pasang di iPhone / iPad</h3>
-                  <p className="text-[11px] text-gray-400">Gunakan browser bawaan Safari</p>
-                </div>
-              </div>
-
-              {/* 4 Langkah iOS */}
-              <div className="space-y-2">
-                <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center space-x-3">
-                  <span className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-black text-xs shrink-0">1</span>
-                  <p className="text-[11px] text-gray-300">Buka link ini di browser <strong className="text-white">Safari</strong>.</p>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center space-x-3">
-                  <span className="w-6 h-6 rounded-full bg-pilar-gold/20 text-pilar-gold flex items-center justify-center font-black text-xs shrink-0">2</span>
-                  <p className="text-[11px] text-gray-300">
-                    Tekan tombol <strong className="text-white">Share</strong>{" "}
-                    <span className="inline-flex items-center px-1.5 py-0.5 bg-white/10 rounded text-blue-400 font-bold mx-0.5">
-                      <i className="fa-solid fa-arrow-up-from-bracket text-xs"></i>
-                    </span>{" "}
-                    di bar bawah Safari.
-                  </p>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center space-x-3">
-                  <span className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-black text-xs shrink-0">3</span>
-                  <p className="text-[11px] text-gray-300">
-                    Gulir ke bawah dan pilih <strong className="text-pilar-gold">"Tambahkan ke Layar Utama"</strong> (➕).
-                  </p>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center space-x-3">
-                  <span className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center font-black text-xs shrink-0">4</span>
-                  <p className="text-[11px] text-gray-300">
-                    Tekan <strong className="text-white">"Tambah"</strong> di pojok kanan atas. Ikon PilarAPP langsung muncul di HP!
-                  </p>
-                </div>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-center">
-                <p className="text-[10px] text-blue-300">
-                  <i className="fa-solid fa-shield-heart mr-1"></i> Terpasang di Layar Utama iPhone persis seperti aplikasi App Store.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tombol Alternatif & Share */}
-        <div className="space-y-2 pt-1">
-          <Link
-            href="/"
-            className="w-full py-3 px-4 rounded-xl bg-white/10 hover:bg-white/15 active:scale-[0.98] border border-white/15 text-white font-bold text-xs transition-all flex items-center justify-center space-x-2 shadow-sm"
-          >
-            <i className="fa-solid fa-arrow-right-to-bracket text-pilar-gold"></i>
-            <span>Buka Versi Web (Tanpa Pasang)</span>
-          </Link>
-
-          <button
-            onClick={handleCopyLink}
-            className="w-full py-2.5 px-4 rounded-xl text-gray-400 hover:text-white text-xs transition flex items-center justify-center space-x-2"
-          >
-            <i className={copied ? "fa-solid fa-check text-emerald-400" : "fa-solid fa-share-nodes"}></i>
-            <span>{copied ? "Link Berhasil Disalin!" : "Salin Link untuk Dibagikan ke Karyawan"}</span>
-          </button>
         </div>
-
-
-
-      </main>
-
-      {/* Footer Ringkas */}
-      <footer className="py-2.5 text-center text-[10px] text-gray-400 bg-pilar-darker/80 border-t border-white/5 shrink-0">
-        &copy; {new Date().getFullYear()} PT. Pilar Sentra Solusi
-      </footer>
+      </div>
     </div>
   );
 }
