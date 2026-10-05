@@ -92,6 +92,11 @@ export default function EmployeeDashboard() {
     }
   };
 
+  // Pre-warm (Pemanasan) Server Vercel agar tidak tertidur
+  useEffect(() => {
+    fetch('/api/attendance', { method: 'HEAD' }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     const unsub = subscribeToCompanySettings((settings) => {
       if (settings?.timezone) {
