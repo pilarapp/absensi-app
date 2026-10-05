@@ -137,41 +137,8 @@ export default function DownloadPwaPage() {
           </div>
         )}
 
-        {/* OS Tab Selector */}
-        <div className="bg-pilar-darker/90 backdrop-blur-md p-1.5 rounded-2xl border border-white/10 flex items-center shadow-inner">
-          <button
-            onClick={() => setActiveTab("android")}
-            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
-              activeTab === "android"
-                ? "bg-pilar-gold text-pilar-darker shadow-md font-extrabold scale-[1.02]"
-                : "text-gray-400 hover:text-white"
-            }`}
-          >
-            <i className="fa-brands fa-android text-sm"></i>
-            <span>Android</span>
-            {device === "android" && (
-              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-pilar-darker/20 text-pilar-darker uppercase font-black">HP Anda</span>
-            )}
-          </button>
 
-          <button
-            onClick={() => setActiveTab("ios")}
-            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
-              activeTab === "ios"
-                ? "bg-pilar-gold text-pilar-darker shadow-md font-extrabold scale-[1.02]"
-                : "text-gray-400 hover:text-white"
-            }`}
-          >
-            <i className="fa-brands fa-apple text-sm"></i>
-            <span>iPhone (iOS)</span>
-            {device === "ios" && (
-              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-pilar-darker/20 text-pilar-darker uppercase font-black">HP Anda</span>
-            )}
-          </button>
-        </div>
-
-        {/* TAB KONTEN 1: ANDROID */}
-        {activeTab === "android" && (
+        {(device === "android" || device === "desktop") && (
           <div className="space-y-3 animate-fade-in">
             <div className="bg-pilar-darker/70 backdrop-blur-sm border border-white/10 rounded-2xl p-4 shadow-lg space-y-3">
               <div className="flex items-center space-x-2.5">
@@ -217,7 +184,7 @@ export default function DownloadPwaPage() {
         )}
 
         {/* TAB KONTEN 2: IOS (IPHONE) */}
-        {activeTab === "ios" && (
+        {device === "ios" && (
           <div className="space-y-3 animate-fade-in">
             <div className="bg-pilar-darker/70 backdrop-blur-sm border border-white/10 rounded-2xl p-4 shadow-lg space-y-3">
               <div className="flex items-center space-x-2.5">
@@ -291,24 +258,7 @@ export default function DownloadPwaPage() {
           </button>
         </div>
 
-        {/* Fitur Singkat */}
-        <div className="pt-3 border-t border-white/10 grid grid-cols-3 gap-2 text-center text-gray-400">
-          <div className="p-2 rounded-xl bg-pilar-darker/50 border border-white/5">
-            <i className="fa-solid fa-bolt text-pilar-gold text-sm mb-1 block"></i>
-            <p className="font-bold text-[11px] text-white">Ringan</p>
-            <p className="text-[9px] text-gray-400">&lt; 2 MB</p>
-          </div>
-          <div className="p-2 rounded-xl bg-pilar-darker/50 border border-white/5">
-            <i className="fa-solid fa-location-dot text-pilar-gold text-sm mb-1 block"></i>
-            <p className="font-bold text-[11px] text-white">GPS Presisi</p>
-            <p className="text-[9px] text-gray-400">Anti Fake GPS</p>
-          </div>
-          <div className="p-2 rounded-xl bg-pilar-darker/50 border border-white/5">
-            <i className="fa-solid fa-file-invoice-dollar text-pilar-gold text-sm mb-1 block"></i>
-            <p className="font-bold text-[11px] text-white">Slip Gaji</p>
-            <p className="text-[9px] text-gray-400">Realtime</p>
-          </div>
-        </div>
+
 
       </main>
 
