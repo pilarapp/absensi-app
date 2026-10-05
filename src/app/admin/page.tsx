@@ -458,6 +458,7 @@ export default function AdminDesktopPage() {
 
   // Karyawan State
   const [karyawanList, setKaryawanList] = useState<Karyawan[]>(initialKaryawan);
+  const [karyawanSearch, setKaryawanSearch] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingKaryawan, setEditingKaryawan] = useState<Karyawan | null>(null);
 
@@ -3154,22 +3155,14 @@ export default function AdminDesktopPage() {
               <div className="p-8 border-b border-gray-100 flex flex-col md:flex-row md:justify-between md:items-center bg-gray-50/50 space-y-4 md:space-y-0">
                 <div className="flex flex-col md:flex-row items-center space-y-3 md:space-y-0 md:space-x-4 w-full md:w-auto">
                   <div className="relative w-full md:w-auto">
-                    <input type="text" placeholder="Cari karyawan..." className="w-full md:w-64 border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm text-gray-700 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all" />
-                    <i className="fa-solid fa-search absolute left-4 top-3 text-gray-400"></i>
-                  </div>
-                  <div className="relative w-full md:w-auto">
                     <input 
-                      type="month" 
-                      value={`${laporanTahun}-${laporanBulan.toString().padStart(2, '0')}`}
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          const [y, m] = e.target.value.split('-');
-                          setLaporanTahun(parseInt(y));
-                          setLaporanBulan(parseInt(m));
-                        }
-                      }}
-                      className="w-full md:w-auto border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-700 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all" 
+                      type="text" 
+                      placeholder="Cari karyawan..." 
+                      value={karyawanSearch}
+                      onChange={(e) => setKaryawanSearch(e.target.value)}
+                      className="w-full md:w-64 border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm text-gray-700 focus:outline-none focus:border-pilar-darker focus:ring-1 focus:ring-pilar-darker shadow-sm transition-all" 
                     />
+                    <i className="fa-solid fa-search absolute left-4 top-3 text-gray-400"></i>
                   </div>
                 </div>
                 <div className="flex flex-col md:flex-row items-center space-y-3 md:space-y-0 md:space-x-4 w-full md:w-auto">
@@ -3201,7 +3194,9 @@ export default function AdminDesktopPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {karyawanList.map((karyawan) => (
+                    {karyawanList
+                      .filter(k => k.nama.toLowerCase().includes(karyawanSearch.toLowerCase()) || k.email.toLowerCase().includes(karyawanSearch.toLowerCase()))
+                      .map((karyawan) => (
                       <tr key={karyawan.id} className="group transition-all duration-300 hover:-translate-y-1 relative z-10">
                         <td className="px-6 py-5 bg-white rounded-l-2xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] group-hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] border-y border-l border-gray-100 group-hover:border-pilar-gold/40 transition-all">
                           <div className="flex items-center space-x-4">
