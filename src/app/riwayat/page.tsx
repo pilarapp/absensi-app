@@ -29,8 +29,12 @@ const dummyRiwayat: RiwayatAbsen[] = [
 
 export default function RiwayatPage() {
   // Absen State
-  const [selectedMonth, setSelectedMonth] = useState("09"); // Default: September
-  const [selectedYear, setSelectedYear] = useState("2026");
+  const currentDate = new Date();
+  const currentMonth = String(currentDate.getMonth() + 1).padStart(2, "0");
+  const currentYear = String(currentDate.getFullYear());
+  
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const [selectedYear, setSelectedYear] = useState(currentYear);
 
   const [toastMessage, setToastMessage] = useState("");
   const [currentUser, setCurrentUser] = useState<any>(null);
