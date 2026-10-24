@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import dynamic from "next/dynamic";
 import CustomSelect from "@/components/CustomSelect";
-import { subscribeToRequests, updateRequestStatus, deleteRequest, deleteAllRequestHistory, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, deleteAllSalariesHistory, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs, subscribeToPositions, addPosition, DEFAULT_POSITIONS, PositionItem, checkAdminRole, subscribeToAdmins, AdminAccount, SuratPeringatan, subscribeToSuratPeringatan, addSuratPeringatan, updateSuratPeringatan, deleteSuratPeringatan, TIMEZONE_OPTIONS, DEFAULT_COMPANY_SETTINGS, CompanySettings, updateCompanySettings, subscribeToCompanySettings } from "@/lib/db";
+import { subscribeToRequests, updateRequestStatus, deleteRequest, deleteAllRequestHistory, subscribeToLocations, addLocation, updateLocation, deleteLocation, subscribeToEmployees, subscribeToAllAttendance, subscribeToFinances, addFinanceTransaction, deleteFinanceTransaction, subscribeToSalaries, deleteAllSalariesHistory, subscribeToNotifications, addNotification, paySalary, logAdminActivity, subscribeToAuditLogs, subscribeToPositions, addPosition, DEFAULT_POSITIONS, PositionItem, checkAdminRole, subscribeToAdmins, AdminAccount, SuratPeringatan, subscribeToSuratPeringatan, addSuratPeringatan, updateSuratPeringatan, deleteSuratPeringatan, TIMEZONE_OPTIONS, DEFAULT_COMPANY_SETTINGS, CompanySettings, updateCompanySettings, subscribeToCompanySettings, parseDateToComponents } from "@/lib/db";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
@@ -54,31 +54,9 @@ type Karyawan = {
 
 // Helper untuk parse tanggal baik format ISO (YYYY-MM-DD), timestamp ISO, maupun format lokal id-ID (D/M/YYYY atau DD/MM/YYYY)
 const parseAttendanceDate = (dateStr: string | undefined | null): Date | null => {
-  if (!dateStr) return null;
-  if (typeof dateStr === 'string' && dateStr.includes('/')) {
-    const parts = dateStr.split('/');
-    if (parts.length === 3) {
-      const day = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1;
-      const year = parseInt(parts[2], 10);
-      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
-        return new Date(year, month, day);
-      }
-    }
-  }
-  if (typeof dateStr === 'string' && dateStr.includes('-')) {
-    const parts = dateStr.split('T')[0].split('-');
-    if (parts.length === 3) {
-      const year = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1;
-      const day = parseInt(parts[2], 10);
-      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
-        return new Date(year, month, day);
-      }
-    }
-  }
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? null : d;
+  const comp = parseDateToComponents(dateStr);
+  if (!comp) return null;
+  return new Date(comp.year, comp.month - 1, comp.day);
 };
 
 // Helper format ke YYYY-MM-DD standar berdasarkan waktu lokal
@@ -876,10 +854,11 @@ export default function AdminDesktopPage() {
         jamMasuk: d.jamMasuk || "-",
         jamKeluar: d.jamKeluar || "-",
         status: d.status || "Hadir",
-        keterangan: "-"
+        keterangan: "-",
+        createdAt: d.createdAt
       }));
       // Urutkan dari terbaru
-      formatted.sort((a, b) => new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime());
+      formatted.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       setRiwayatLaporan(formatted);
 
       // Generate Data Grafik

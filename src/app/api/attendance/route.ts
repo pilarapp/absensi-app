@@ -26,10 +26,38 @@ async function getCompanyTimezone(): Promise<string> {
   } catch (e) {
     console.warn("Gagal membaca timezone dari settings:", e);
   }
-  return process.env.APP_TIMEZONE || 'Asia/Tokyo';
+  return process.env.APP_TIMEZONE || 'Asia/Jakarta';
 }
 
-function getAppDateTime(timeZone: string = 'Asia/Tokyo') {
+function parseDateParts(dateStr: string): { y: number; m: number; d: number } | null {
+  if (!dateStr) return null;
+  const str = String(dateStr).split('T')[0].trim();
+  const delimiter = str.includes('/') ? '/' : '-';
+  const parts = str.split(delimiter).map((p: string) => parseInt(p, 10)).filter((n: number) => !isNaN(n));
+  if (parts.length === 3) {
+    if (parts[0] > 1900) {
+      return { y: parts[0], m: parts[1], d: parts[2] };
+    } else if (parts[2] > 1900) {
+      return { d: parts[0], m: parts[1], y: parts[2] };
+    }
+  }
+  const dt = new Date(str);
+  if (!isNaN(dt.getTime())) {
+    return { y: dt.getFullYear(), m: dt.getMonth() + 1, d: dt.getDate() };
+  }
+  return null;
+}
+
+function compareDates(dateStr1: string, dateStr2: string): number {
+  const p1 = parseDateParts(dateStr1);
+  const p2 = parseDateParts(dateStr2);
+  if (!p1 || !p2) return 0;
+  const t1 = new Date(p1.y, p1.m - 1, p1.d).getTime();
+  const t2 = new Date(p2.y, p2.m - 1, p2.d).getTime();
+  return Math.round((t1 - t2) / (1000 * 60 * 60 * 24));
+}
+
+function getAppDateTime(timeZone: string = 'Asia/Jakarta') {
   const now = new Date();
   
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -46,7 +74,15 @@ function getAppDateTime(timeZone: string = 'Asia/Tokyo') {
   const formatShort = `${day}/${month}/${year}`;
   const formatPadded = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
   const formatIso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  const possibleDates = Array.from(new Set([formatShort, formatPadded, formatIso, now.toLocaleDateString('id-ID')]));
+  
+  let localizedId = '';
+  try {
+    localizedId = now.toLocaleDateString('id-ID', { timeZone });
+  } catch {
+    localizedId = formatShort;
+  }
+  
+  const possibleDates = Array.from(new Set([formatShort, formatPadded, formatIso, localizedId]));
 
   const timeFormatter = new Intl.DateTimeFormat('id-ID', {
     timeZone,
@@ -60,8 +96,9 @@ function getAppDateTime(timeZone: string = 'Asia/Tokyo') {
   if (timeZone === "Asia/Tokyo") code = "JST";
   else if (timeZone === "Asia/Jayapura") code = "WIT";
   else if (timeZone === "Asia/Makassar") code = "WITA";
+  else if (timeZone === "Asia/Jakarta") code = "WIB";
 
-  return { now, tanggal: formatShort, possibleDates, timeString, timezone: timeZone, timezoneCode: code };
+  return { now, tanggal: formatShort, possibleDates, timeString, timezone: timeZone, timezoneCode: code, day, month, year };
 }
 
 // POST: Absen Masuk
@@ -83,7 +120,7 @@ export async function POST(req: Request) {
     const [empDoc, locsSnapshot, appTimezone] = await Promise.all([
       adminDb.collection('employees').doc(caller.uid).get().catch(() => null),
       adminDb.collection('locations').get().catch(() => null),
-      getCompanyTimezone().catch(() => 'Asia/Tokyo'),
+      getCompanyTimezone().catch(() => 'Asia/Jakarta'),
     ]);
 
     let empData = empDoc?.exists ? empDoc.data() : null;
@@ -139,24 +176,85 @@ export async function POST(req: Request) {
     // 3. Waktu Server & Keterlambatan
     const { tanggal, possibleDates, timeString, timezoneCode } = getAppDateTime(appTimezone);
 
-    // Cek apakah sudah pernah absen masuk hari ini
-    const existingCheck = await adminDb.collection('attendance')
+    // 4. Periksa sesi absensi karyawan
+    const recentAttQuery = await adminDb.collection('attendance')
       .where('karyawanId', '==', caller.uid)
-      .where('tanggal', 'in', possibleDates)
-      .limit(1)
-      .get();
+      .limit(10)
+      .get()
+      .catch(() => null);
 
-    if (!existingCheck.empty) {
-      const existingData = existingCheck.docs[0].data();
+    const recentDocs: any[] = recentAttQuery?.docs ? (recentAttQuery.docs.map(d => ({ id: d.id, ...d.data() })) as any[]) : [];
+    // Urutkan dari yang terbaru
+    recentDocs.sort((a: any, b: any) => {
+      const tA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt || 0).getTime();
+      const tB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt || 0).getTime();
+      return tB - tA;
+    });
+
+    const nowTime = Date.now();
+
+    // 4a. Cek apakah ada sesi aktif HARI INI yang belum absen pulang
+    const todayUnclosed: any = recentDocs.find((d: any) => {
+      if (d.jamKeluar && d.jamKeluar !== '--:--') return false;
+      return compareDates(tanggal, d.tanggal) === 0 || possibleDates.includes(d.tanggal);
+    });
+
+    if (todayUnclosed) {
       return NextResponse.json({
         success: true,
         alreadyCheckedIn: true,
-        docId: existingCheck.docs[0].id,
-        tanggal,
-        timeCheckin: existingData.jamMasuk,
-        status: existingData.status,
-        message: 'Anda sudah melakukan absen masuk hari ini.'
+        docId: todayUnclosed.id,
+        tanggal: todayUnclosed.tanggal,
+        timeCheckin: todayUnclosed.jamMasuk,
+        status: todayUnclosed.status,
+        message: 'Anda masih memiliki sesi absensi aktif hari ini yang belum absen pulang.'
       });
+    }
+
+    // 4b. Cek apakah ada sesi aktif Shift Malam lintas hari dari kemarin (dalam kurun waktu <= 16 jam, atau <= 26 jam untuk shift 24 jam)
+    const overnightActive: any = recentDocs.find((d: any) => {
+      if (d.jamKeluar && d.jamKeluar !== '--:--') return false;
+      const dateDiff = compareDates(tanggal, d.tanggal);
+      if (dateDiff !== 1) return false; // Hanya jika tepat kemarin
+      const createdTime = d.createdAt?.toDate ? d.createdAt.toDate().getTime() : new Date(d.createdAt || 0).getTime();
+      const ageHours = (nowTime - createdTime) / (1000 * 60 * 60);
+      const isCrossDay = (d.shiftKeluar && d.shiftMasuk && d.shiftKeluar <= d.shiftMasuk) || (d.jamMasuk && d.jamMasuk >= '17:00');
+      const maxHours = (d.shiftKeluar && d.shiftMasuk && d.shiftKeluar === d.shiftMasuk) ? 26 : 16;
+      return isCrossDay && ageHours >= 0 && ageHours <= maxHours;
+    });
+
+    if (overnightActive) {
+      return NextResponse.json({
+        success: true,
+        alreadyCheckedIn: true,
+        docId: overnightActive.id,
+        tanggal: overnightActive.tanggal,
+        timeCheckin: overnightActive.jamMasuk,
+        status: overnightActive.status,
+        message: 'Anda masih berada dalam sesi dinas Shift Malam yang belum absen pulang.'
+      });
+    }
+
+    // 5. Jika karyawan adalah Fix Time (bukan shift/satpam), batasi 1 kali absensi per hari kalender
+    const isShiftWorker = empData?.tipeKerja === 'Shift' || 
+      (empData?.posisi && empData.posisi.toLowerCase().includes('satpam')) || 
+      !!shiftName;
+
+    if (!isShiftWorker) {
+      const existingToday: any = recentDocs.find((d: any) => 
+        compareDates(tanggal, d.tanggal) === 0 || possibleDates.includes(d.tanggal)
+      );
+      if (existingToday) {
+        return NextResponse.json({
+          success: true,
+          alreadyCheckedIn: true,
+          docId: existingToday.id,
+          tanggal: existingToday.tanggal,
+          timeCheckin: existingToday.jamMasuk,
+          status: existingToday.status,
+          message: 'Anda sudah melakukan absensi hari ini.'
+        });
+      }
     }
 
     const batasMasuk = shiftMasuk || empData.shiftMasuk || '08:00';
@@ -175,7 +273,7 @@ export async function POST(req: Request) {
       verifiedByServer: true,
     };
     
-    // Simpan shift jika ada (untuk satpam)
+    // Simpan shift jika ada (untuk shift dinamis/satpam)
     if (shiftName && shiftMasuk && shiftKeluar) {
       newAttendance.shiftName = shiftName;
       newAttendance.shiftMasuk = shiftMasuk;
@@ -218,78 +316,152 @@ export async function PUT(req: Request) {
 
     const [empDoc, appTimezone] = await Promise.all([
       adminDb.collection('employees').doc(caller.uid).get().catch(() => null),
-      getCompanyTimezone().catch(() => 'Asia/Tokyo'),
+      getCompanyTimezone().catch(() => 'Asia/Jakarta'),
     ]);
 
     const empData = empDoc?.exists ? empDoc.data() : null;
     const { tanggal, possibleDates, timeString, timezoneCode } = getAppDateTime(appTimezone);
 
-    // Cari dokumen absensi hari ini
+    // Cari dokumen absensi yang ditargetkan untuk checkout
     let targetDocId = docId;
-    let attendanceData = null;
+    let attendanceData: any = null;
 
     if (targetDocId) {
       const snap = await adminDb.collection('attendance').doc(targetDocId).get();
       if (snap.exists) attendanceData = snap.data();
-    } else {
-      const snap = await adminDb.collection('attendance')
+    }
+
+    // Jika tidak ditemukan via docId atau docId tidak dikirim (misal setelah refresh / pergantian hari):
+    // Cari dokumen absensi aktif yang belum checkout (jamKeluar == null) dalam kurun waktu 30 jam
+    if (!targetDocId || !attendanceData) {
+      const recentSnap = await adminDb.collection('attendance')
         .where('karyawanId', '==', caller.uid)
-        .where('tanggal', 'in', possibleDates)
-        .limit(1)
-        .get();
-      if (!snap.empty) {
-        targetDocId = snap.docs[0].id;
-        attendanceData = snap.docs[0].data();
+        .limit(10)
+        .get()
+        .catch(() => null);
+
+      if (recentSnap && !recentSnap.empty) {
+        const recentDocs = recentSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        recentDocs.sort((a: any, b: any) => {
+          const tA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt || 0).getTime();
+          const tB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt || 0).getTime();
+          return tB - tA;
+        });
+
+        // 1. Cari yang belum checkout hari ini
+        const unclosedToday = recentDocs.find((d: any) => 
+          (!d.jamKeluar || d.jamKeluar === '--:--') && (compareDates(tanggal, d.tanggal) === 0 || possibleDates.includes(d.tanggal))
+        );
+
+        // 2. Atau cari sesi unclosed Shift Malam lintas hari dari kemarin
+        const unclosedOvernight = recentDocs.find((d: any) => {
+          if (d.jamKeluar && d.jamKeluar !== '--:--') return false;
+          const createdTime = d.createdAt?.toDate ? d.createdAt.toDate().getTime() : new Date(d.createdAt || 0).getTime();
+          const ageHours = (Date.now() - createdTime) / (1000 * 60 * 60);
+          const isCrossDay = (d.shiftKeluar && d.shiftMasuk && d.shiftKeluar <= d.shiftMasuk) || (d.jamMasuk && d.jamMasuk >= '17:00');
+          const maxHours = (d.shiftKeluar && d.shiftMasuk && d.shiftKeluar === d.shiftMasuk) ? 26 : 16;
+          return isCrossDay && ageHours >= 0 && ageHours <= maxHours;
+        });
+
+        const unclosed = unclosedToday || unclosedOvernight;
+        if (unclosed) {
+          targetDocId = unclosed.id;
+          attendanceData = unclosed;
+        } else {
+          // 3. Cari yang tanggalnya hari ini
+          const todayDoc = recentDocs.find((d: any) => compareDates(tanggal, d.tanggal) === 0 || possibleDates.includes(d.tanggal));
+          if (todayDoc) {
+            targetDocId = todayDoc.id;
+            attendanceData = todayDoc;
+          }
+        }
       }
     }
 
     if (!targetDocId || !attendanceData) {
-      return NextResponse.json({ error: 'Data absen masuk hari ini tidak ditemukan.' }, { status: 404 });
+      return NextResponse.json({ error: 'Data sesi absensi masuk tidak ditemukan.' }, { status: 404 });
     }
 
-    // 1. Cek Batas Jam Pulang
-    let batasKeluar = attendanceData.shiftKeluar || empData?.shiftKeluar || '17:00';
-    let batasMasuk = attendanceData.shiftMasuk || empData?.shiftMasuk || '08:00';
+    // 1. Cek Durasi Sejak Check-In (mencegah klik ganda tidak sengaja dalam 2 menit pertama)
+    const checkinCreated = attendanceData.createdAt?.toDate 
+      ? attendanceData.createdAt.toDate().getTime() 
+      : new Date(attendanceData.createdAt || 0).getTime();
+    const elapsedMinutes = (Date.now() - checkinCreated) / (1000 * 60);
+
+    if (elapsedMinutes < 2 && compareDates(tanggal, attendanceData.tanggal) === 0) {
+      return NextResponse.json({
+        error: 'Anda baru saja melakukan absen masuk kurang dari 2 menit yang lalu. Harap tunggu sebentar sebelum absen pulang.'
+      }, { status: 400 });
+    }
+
+    // 2. Evaluasi Jadwal & Status Pulang Lebih Awal (Piket / Shift Pagi / Pulang Cepat)
+    const shiftKeluarTime = attendanceData.shiftKeluar || empData?.shiftKeluar || '17:00';
+    const shiftMasukTime = attendanceData.shiftMasuk || empData?.shiftMasuk || '08:00';
+    const checkinTime = attendanceData.jamMasuk || shiftMasukTime;
     
-    // Jika jam pulang lebih kecil atau sama dengan jam masuk, berarti shift ini melewati tengah malam (atau shift 24 jam)
-    const isCrossDayShift = batasKeluar <= batasMasuk;
-    
+    // Apakah shift melewati tengah malam? (misal 20:00 - 08:00)
+    const isCrossDayShift = shiftKeluarTime <= shiftMasukTime;
+    const is24HourShift = shiftKeluarTime === shiftMasukTime;
+    const dateDiff = compareDates(tanggal, attendanceData.tanggal);
+
+    let isPulangAwal = false;
+
     if (isCrossDayShift) {
-      if (tanggal === attendanceData.tanggal) {
-        // Jika masih di hari yang sama dengan absen masuk, belum boleh pulang
-        return NextResponse.json({
-          error: `Belum masuk waktu pulang (Jadwal pulang shift Anda: besok jam ${batasKeluar}).`
-        }, { status: 400 });
-      } else if (tanggal > attendanceData.tanggal && timeString < batasKeluar) {
-        // Jika sudah beda hari tapi belum mencapai jam pulang
-        return NextResponse.json({
-          error: `Belum masuk waktu pulang (Jadwal pulang shift Anda: ${batasKeluar}, jam server saat ini: ${timeString} ${timezoneCode}).`
-        }, { status: 400 });
+      if (is24HourShift) {
+        if (dateDiff === 0 || (dateDiff === 1 && timeString < shiftKeluarTime)) {
+          isPulangAwal = true;
+        }
+      } else if (checkinTime >= "12:00") {
+        if (dateDiff === 0 || (dateDiff === 1 && timeString < shiftKeluarTime)) {
+          isPulangAwal = true;
+        }
+      } else {
+        if (dateDiff === 0 && timeString < shiftKeluarTime) {
+          isPulangAwal = true;
+        }
       }
     } else {
-      // Shift normal (pulang di hari yang sama)
-      if (tanggal === attendanceData.tanggal && timeString < batasKeluar) {
-        return NextResponse.json({
-          error: `Belum masuk waktu pulang (Jadwal pulang shift Anda: ${batasKeluar}, jam server saat ini: ${timeString} ${timezoneCode}).`
-        }, { status: 400 });
+      // Shift normal / Piket / Fix Time pada hari yang sama
+      if (dateDiff === 0 && timeString < shiftKeluarTime) {
+        isPulangAwal = true;
       }
     }
 
-    // 3. Update Jam Pulang
-    await adminDb.collection('attendance').doc(targetDocId).update({
+    // Tentukan status kehadiran akhir secara fleksibel
+    let finalStatus = attendanceData.status || 'Hadir';
+    if (isPulangAwal) {
+      if (finalStatus === 'Terlambat') {
+        finalStatus = 'Terlambat & Pulang Cepat';
+      } else if (finalStatus === 'Hadir') {
+        finalStatus = 'Pulang Cepat';
+      }
+    }
+
+    // 3. Update Jam Pulang ke Firestore (Selalu izinkan checkout agar karyawan piket/shift pagi tidak terblokir)
+    const updatePayload: any = {
       jamKeluar: timeString,
       koordinatKeluar: { lat, lng },
+      status: finalStatus,
+      isPulangAwal,
       updatedAt: new Date()
-    });
+    };
+
+    await adminDb.collection('attendance').doc(targetDocId).update(updatePayload);
+
+    const messageText = isPulangAwal
+      ? `Berhasil absen pulang pada pukul ${timeString} ${timezoneCode} (Selesai dinas / Pulang lebih awal).`
+      : `Berhasil absen pulang pada pukul ${timeString} ${timezoneCode}.`;
 
     return NextResponse.json({
       success: true,
       docId: targetDocId,
       tanggal,
       timeCheckout: timeString,
+      status: finalStatus,
+      isPulangAwal,
       timezone: appTimezone,
       timezoneCode,
-      message: `Berhasil absen pulang pada pukul ${timeString} ${timezoneCode}`
+      message: messageText
     });
 
   } catch (error: any) {

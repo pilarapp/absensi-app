@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { recordCheckIn, recordCheckOut, getTodayAttendance, getEmployee, getEmployeeAttendance, getEmployeeRequests, subscribeToCompanySettings } from '@/lib/db';
+import { recordCheckIn, recordCheckOut, getTodayAttendance, getEmployee, getEmployeeAttendance, getEmployeeRequests, subscribeToCompanySettings, parseDateToComponents } from '@/lib/db';
 import NotificationBell from '@/components/NotificationBell';
 import Toast from '@/components/Toast';
 
@@ -38,8 +38,8 @@ export default function EmployeeDashboard() {
 
   const [currentTime, setCurrentTime] = useState("");
   const [currentDate, setCurrentDate] = useState("");
-  const [appTimezone, setAppTimezone] = useState("Asia/Tokyo");
-  const [appTimezoneCode, setAppTimezoneCode] = useState("JST");
+  const [appTimezone, setAppTimezone] = useState("Asia/Jakarta");
+  const [appTimezoneCode, setAppTimezoneCode] = useState("WIB");
   const [globalShifts, setGlobalShifts] = useState<{name: string; masuk: string; keluar: string}[]>([]);
   const [timeCheckin, setTimeCheckin] = useState("--:--");
   const [timeCheckout, setTimeCheckout] = useState("--:--");
@@ -78,15 +78,9 @@ export default function EmployeeDashboard() {
       const m = parseInt(parts.find(p => p.type === 'month')!.value, 10);
       const y = parseInt(parts.find(p => p.type === 'year')!.value, 10);
 
-      const candidates = [
-        `${d}/${m}/${y}`,
-        `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`,
-        `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
-        now.toLocaleDateString("id-ID")
-      ];
-      if (candidates.includes(dateStr.trim())) return true;
-      const clean = dateStr.replace(/-/g, '/').split('/').map(p => parseInt(p, 10)).filter(n => !isNaN(n));
-      return clean.includes(d) && clean.includes(m) && clean.includes(y);
+      const comp = parseDateToComponents(dateStr);
+      if (!comp) return false;
+      return comp.year === y && comp.month === m && comp.day === d;
     } catch {
       return false;
     }
@@ -115,26 +109,41 @@ export default function EmployeeDashboard() {
     const startTime = Date.now();
 
     const fetchServerAtt = async (empId: string) => {
-       const existingAtt: any = await getTodayAttendance(empId);
+       const existingAtt: any = await getTodayAttendance(empId, appTimezone);
        if (existingAtt) {
           if (existingAtt.jamMasuk) {
             setTimeCheckin(existingAtt.jamMasuk);
-            setHasCheckedIn(true);
           }
-          if (existingAtt.jamKeluar) {
+          if (existingAtt.jamKeluar && existingAtt.jamKeluar !== "--:--") {
             setTimeCheckout(existingAtt.jamKeluar);
+          } else {
+            setTimeCheckout("--:--");
           }
+
+          // Sesi aktif jika jamMasuk ada dan jamKeluar belum ada
+          const isActiveSession = !!(existingAtt.jamMasuk && (!existingAtt.jamKeluar || existingAtt.jamKeluar === "--:--"));
+          setHasCheckedIn(isActiveSession);
+
           localStorage.setItem("pilar_today_attendance", JSON.stringify({
              date: existingAtt.tanggal,
              timeCheckin: existingAtt.jamMasuk || "--:--",
              timeCheckout: existingAtt.jamKeluar || null,
-             docId: existingAtt.id
+             docId: existingAtt.id,
+             shiftName: existingAtt.shiftName || null,
+             shiftMasuk: existingAtt.shiftMasuk || null,
+             shiftKeluar: existingAtt.shiftKeluar || null,
           }));
+       } else {
+          setTimeCheckin("--:--");
+          setTimeCheckout("--:--");
+          setHasCheckedIn(false);
+          localStorage.removeItem("pilar_today_attendance");
        }
     };
 
     const fetchHistoryData = async (empId: string) => {
-      const attendances = await getEmployeeAttendance(empId);
+      const targetIds = Array.from(new Set([auth.currentUser?.uid, empId].filter(Boolean) as string[]));
+      const attendances = await getEmployeeAttendance(targetIds);
       const requests = await getEmployeeRequests(empId);
       
       const now = new Date();
@@ -147,26 +156,14 @@ export default function EmployeeDashboard() {
       const combinedHistory: any[] = [];
       
       attendances.forEach((att: any) => {
-         if (!att.tanggal) return;
-         let d = '', m = '', y = '';
-         if (att.tanggal.includes('-')) {
-           const parts = att.tanggal.split('-');
-           if (parts[0].length === 4) {
-             y = parts[0]; m = parts[1]; d = parts[2];
-           } else {
-             d = parts[0]; m = parts[1]; y = parts[2];
-           }
-         } else if (att.tanggal.includes('/')) {
-           const parts = att.tanggal.split('/');
-           d = parts[0]; m = parts[1]; y = parts[2];
-         }
-         if (!y || !m || !d) return;
+         const comp = parseDateToComponents(att.tanggal || att.createdAt);
+         if (!comp) return;
 
-         const dateObj = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+         const dateObj = new Date(comp.year, comp.month - 1, comp.day);
          if (isNaN(dateObj.getTime())) return;
          
          if (dateObj.getMonth() === currentMonth && dateObj.getFullYear() === currentYear) {
-            if (att.status === 'Hadir' || att.status === 'Terlambat') {
+            if (att.status === 'Hadir' || att.status === 'Terlambat' || att.status?.includes('Hadir') || att.status?.includes('Pulang Cepat')) {
               hadirCount++;
             }
          }
@@ -178,7 +175,7 @@ export default function EmployeeDashboard() {
             status: att.status || 'Hadir',
             timeCheckin: att.jamMasuk,
             timeCheckout: att.jamKeluar,
-            label: `${dateObj.toLocaleDateString("id-ID", { weekday: 'long' })}, ${d} ${dateObj.toLocaleDateString("id-ID", { month: 'short' })}`
+            label: `${dateObj.toLocaleDateString("id-ID", { weekday: 'long' })}, ${comp.day} ${dateObj.toLocaleDateString("id-ID", { month: 'short' })}`
          });
       });
       
@@ -218,16 +215,22 @@ export default function EmployeeDashboard() {
         if (savedAtt) {
           try {
             const parsed = JSON.parse(savedAtt);
-            if (isDateToday(parsed.date)) {
+            const isUnclosed = !parsed.timeCheckout || parsed.timeCheckout === "--:--";
+            const isToday = isDateToday(parsed.date);
+            // Sesi boleh dipertahankan hanya jika tanggalnya hari ini
+            if (isToday) {
                if (parsed.timeCheckin && parsed.timeCheckin !== "--:--") {
                  setTimeCheckin(parsed.timeCheckin);
-                 setHasCheckedIn(true);
+                 setHasCheckedIn(isUnclosed);
                }
                if (parsed.timeCheckout && parsed.timeCheckout !== "--:--") {
                  setTimeCheckout(parsed.timeCheckout);
                }
             } else {
                localStorage.removeItem("pilar_today_attendance");
+               setTimeCheckin("--:--");
+               setTimeCheckout("--:--");
+               setHasCheckedIn(false);
             }
           } catch (err) {
             localStorage.removeItem("pilar_today_attendance");
@@ -235,8 +238,9 @@ export default function EmployeeDashboard() {
         }
         
         // Selalu sinkronkan dengan database server agar status absensi 100% presisi
-        await fetchServerAtt(empData.id);
-        await fetchHistoryData(empData.id);
+        const targetEmpId = auth.currentUser?.uid || empData?.id;
+        await fetchServerAtt(targetEmpId);
+        await fetchHistoryData(targetEmpId);
 
         let locName = "Lokasi Standby";
         if (empData?.lokasiId && empData.lokasiId !== "all") {
@@ -414,6 +418,7 @@ export default function EmployeeDashboard() {
             if (res.ok && resData?.success) {
               checkinSuccess = true;
               setTimeCheckin(resData.timeCheckin);
+              setTimeCheckout("--:--");
               setHasCheckedIn(true);
               showToast(resData.message || "Berhasil Absen Masuk!", "success");
 
@@ -421,7 +426,10 @@ export default function EmployeeDashboard() {
                 date: resData.tanggal,
                 timeCheckin: resData.timeCheckin,
                 timeCheckout: null,
-                docId: resData.docId
+                docId: resData.docId,
+                shiftName: shiftOverrides?.name || null,
+                shiftMasuk: shiftOverrides?.masuk || null,
+                shiftKeluar: shiftOverrides?.keluar || null,
               }));
               setIsLoadingLocation(false);
               return;
@@ -477,12 +485,12 @@ export default function EmployeeDashboard() {
                 }
               }
 
-              // Cek apakah sudah absen masuk hari ini
-              const todayAtt = await getTodayAttendance(currentUser?.id || auth.currentUser?.uid || '');
-              if (todayAtt?.jamMasuk) {
+              // Cek apakah sedang memiliki sesi aktif yang belum absen pulang
+              const todayAtt = await getTodayAttendance(currentUser?.id || auth.currentUser?.uid || '', appTimezone);
+              if (todayAtt?.jamMasuk && (!todayAtt.jamKeluar || todayAtt.jamKeluar === "--:--")) {
                 setTimeCheckin(todayAtt.jamMasuk);
                 setHasCheckedIn(true);
-                showToast("Anda sudah melakukan absen masuk hari ini.", "success");
+                showToast("Anda masih memiliki sesi absensi aktif yang belum absen pulang.", "error");
                 setIsLoadingLocation(false);
                 return;
               }
@@ -518,13 +526,17 @@ export default function EmployeeDashboard() {
 
               if (docId) {
                 setTimeCheckin(timeStr);
+                setTimeCheckout("--:--");
                 setHasCheckedIn(true);
                 showToast(isLate ? `Absen masuk berhasil (Terlambat: ${timeStr} ${appTimezoneCode})` : `Absen masuk berhasil (${timeStr} ${appTimezoneCode})`, "success");
                 localStorage.setItem("pilar_today_attendance", JSON.stringify({
                   date: dateStr,
                   timeCheckin: timeStr,
                   timeCheckout: null,
-                  docId: docId
+                  docId: docId,
+                  shiftName: shiftOverrides?.name || null,
+                  shiftMasuk: shiftOverrides?.masuk || null,
+                  shiftKeluar: shiftOverrides?.keluar || null,
                 }));
               } else {
                 showToast("Gagal menyimpan data absensi masuk.", "error");
@@ -568,6 +580,7 @@ export default function EmployeeDashboard() {
             if (res.ok && resData?.success) {
               checkoutSuccess = true;
               setTimeCheckout(resData.timeCheckout);
+              setHasCheckedIn(false);
               showToast(resData.message || "Berhasil Absen Pulang!", "success");
 
               let data: any = {
@@ -593,19 +606,19 @@ export default function EmployeeDashboard() {
             try {
               const now = new Date();
               const timeStr = now.toLocaleTimeString("id-ID", { timeZone: appTimezone, hour: '2-digit', minute: '2-digit', hour12: false }).replace('.', ':');
-              const batasKeluar = currentUser?.shiftKeluar || "17:00";
-
-              if (timeStr < batasKeluar) {
-                showToast(`Belum masuk waktu pulang (Jadwal pulang shift Anda: ${batasKeluar}, jam saat ini: ${timeStr} ${appTimezoneCode}).`, "error");
-                setIsLoadingLocation(false);
-                return;
-              }
+              const savedShiftKeluar = savedAtt ? JSON.parse(savedAtt).shiftKeluar : null;
+              const batasKeluar = savedShiftKeluar || currentUser?.shiftKeluar || "17:00";
 
               const { recordCheckOut } = await import("@/lib/db");
+              if (!targetDocId) {
+                const activeAtt: any = await getTodayAttendance(auth.currentUser?.uid || currentUser?.id, appTimezone);
+                if (activeAtt?.id) targetDocId = activeAtt.id;
+              }
               if (targetDocId) {
                 const ok = await recordCheckOut(targetDocId, timeStr, { lat: latitude, lng: longitude });
                 if (ok) {
                   setTimeCheckout(timeStr);
+                  setHasCheckedIn(false);
                   showToast(`Berhasil absen pulang pada pukul ${timeStr} ${appTimezoneCode}`, "success");
                   let data: any = {
                     date: `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`,
@@ -630,13 +643,23 @@ export default function EmployeeDashboard() {
       },
       (error) => {
         setIsLoadingLocation(false);
-        setLocationText("Akses GPS Ditolak");
-        showToast("Wajib menyalakan lokasi GPS untuk Absen!", "error");
+        let errorMsg = "Gagal mendeteksi lokasi GPS.";
+        if (error.code === 1) {
+          errorMsg = "Izin akses GPS ditolak. Silakan aktifkan izin lokasi browser/HP Anda.";
+          setLocationText("Akses GPS Ditolak");
+        } else if (error.code === 2) {
+          errorMsg = "Sinyal GPS tidak tersedia. Pastikan fitur lokasi HP Anda aktif.";
+          setLocationText("Sinyal GPS Hilang");
+        } else if (error.code === 3) {
+          errorMsg = "Waktu pencarian GPS habis (Timeout). Silakan coba lagi.";
+          setLocationText("GPS Timeout");
+        }
+        showToast(errorMsg, "error");
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
+        timeout: 15000,
+        maximumAge: 10000
       }
     );
   };
@@ -724,9 +747,15 @@ export default function EmployeeDashboard() {
             <div className="flex-1 flex flex-col items-center">
               <button
                 onClick={() => handleAttendance("Masuk")}
-                disabled={hasCheckedIn || isLoadingLocation || isInitializingAttendance}
+                disabled={
+                  hasCheckedIn || 
+                  isLoadingLocation || 
+                  isInitializingAttendance ||
+                  (currentUser?.tipeKerja !== "Shift" && !currentUser?.posisi?.toLowerCase().includes("satpam") && timeCheckout !== "--:--")
+                }
                 className={`w-20 h-20 rounded-full flex flex-col items-center justify-center transition-transform relative ${
-                  !hasCheckedIn && !isLoadingLocation && !isInitializingAttendance
+                  !hasCheckedIn && !isLoadingLocation && !isInitializingAttendance &&
+                  (currentUser?.tipeKerja === "Shift" || currentUser?.posisi?.toLowerCase().includes("satpam") || timeCheckout === "--:--")
                     ? "bg-pilar-gold text-pilar-darker shadow-neon animate-pulse-gold hover:scale-105 active:scale-95"
                     : "bg-gray-700 text-pilar-textSecondary opacity-50"
                 }`}
@@ -842,9 +871,11 @@ export default function EmployeeDashboard() {
           
           <div className="space-y-4 flex-1">
             {(globalShifts.length > 0 ? globalShifts.map((s: any) => ({...s, label: `${s.masuk} - ${s.keluar}`})) : [
-              { name: 'Shift Pagi', masuk: '08:00', keluar: '20:00', label: '08.00 - 20.00' },
-              { name: 'Shift Malam', masuk: '20:00', keluar: '08:00', label: '20.00 - 08.00' },
-              { name: 'Shift Full', masuk: '08:00', keluar: '08:00', label: '08.00 - 08.00 (24 Jam)' },
+              { name: 'Shift Pagi (8 Jam)', masuk: '08:00', keluar: '16:00', label: '08.00 - 16.00 (8 Jam)' },
+              { name: 'Shift Pagi (12 Jam)', masuk: '08:00', keluar: '20:00', label: '08.00 - 20.00 (12 Jam)' },
+              { name: 'Shift Malam (12 Jam)', masuk: '20:00', keluar: '08:00', label: '20.00 - 08.00 (12 Jam)' },
+              { name: 'Piket / Setengah Hari', masuk: '08:00', keluar: '13:00', label: '08.00 - 13.00 (Piket)' },
+              { name: 'Shift Full (24 Jam)', masuk: '08:00', keluar: '08:00', label: '08.00 - 08.00 (24 Jam)' },
             ]).map((shift: any, i: number) => (
               <button
                 key={i}

@@ -4,18 +4,20 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import NotificationBell from "@/components/NotificationBell";
 import Toast from "@/components/Toast";
-import { subscribeToEmployeeAttendance, getEmployee } from "@/lib/db";
+import { subscribeToEmployeeAttendance, getEmployee, parseDateToComponents } from "@/lib/db";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
 // Dummy Type & Data
 type RiwayatAbsen = {
-  id: number;
+  id: number | string;
   tanggal: string; // Format: YYYY-MM-DD
+  rawTanggal?: string;
+  createdAt?: string;
   jamMasuk: string;
   jamKeluar: string;
-  status: "Hadir" | "Sakit" | "Izin" | "Cuti" | "Absen";
+  status: "Hadir" | "Sakit" | "Izin" | "Cuti" | "Absen" | "Terlambat" | "Pulang Cepat" | "Terlambat & Pulang Cepat" | string;
   keterangan: string;
 };
 
@@ -48,47 +50,38 @@ export default function RiwayatPage() {
         const emp = await getEmployee(user.uid);
         if (emp) {
           setCurrentUser(emp);
-          unsubscribeAttendance = subscribeToEmployeeAttendance(user.uid, (data) => {
-            // Re-format tanggal to YYYY-MM-DD reliably
-            const formattedAttendance = data.map(d => {
-             let isoDate = d.tanggal || ""; // Fallback
-             try {
-                // if d.tanggal is DD/MM/YYYY
-                if (isoDate.includes("/")) {
-                  const parts = isoDate.split("/");
-                  if (parts.length === 3) {
-                     isoDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-                  }
-                } else if (isoDate.includes("-")) {
-                  const parts = isoDate.split("-");
-                  if (parts[0].length === 2) {
-                    // DD-MM-YYYY
-                    isoDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
-                  }
-                }
-             } catch(e) {}
-             
-             // Determine if Terlambat (based on status or keterangan or jamMasuk)
-             let keterangan = d.keterangan || "-";
-             let status = d.status || "Hadir";
+          const idsToSubscribe = Array.from(new Set([user.uid, emp.id].filter(Boolean)));
+          unsubscribeAttendance = subscribeToEmployeeAttendance(idsToSubscribe, (data) => {
+            // Re-format tanggal to YYYY-MM-DD secara universal & reliable
+            const formattedAttendance: RiwayatAbsen[] = data.map(d => {
+              const comp = parseDateToComponents(d.tanggal || d.createdAt);
+              const isoDate = comp ? comp.isoDate : (d.tanggal || "");
+              
+              // Determine if Terlambat (based on status or keterangan or jamMasuk)
+              let keterangan = d.keterangan || "-";
+              let status = d.status || "Hadir";
 
-             // Check if late based on time if status is Hadir
-             if (status === "Hadir" && d.jamMasuk && d.jamMasuk > "08:15" && d.jamMasuk !== "-") {
-                keterangan = "Terlambat";
-             }
-             
-             return {
-               id: d.id as any,
-               tanggal: isoDate,
-               jamMasuk: d.jamMasuk || "-",
-               jamKeluar: d.jamKeluar || "-",
-               status: status,
-               keterangan: keterangan
-             };
+              // Check if late based on shift schedule if status is Hadir
+              const batasMasuk = d.shiftMasuk || "08:15";
+              if (status === "Terlambat" || (status === "Hadir" && d.jamMasuk && d.jamMasuk > batasMasuk && d.jamMasuk !== "-")) {
+                 if (status !== "Terlambat") status = "Terlambat" as any;
+                 keterangan = "Terlambat";
+              }
+              
+              return {
+                id: d.id,
+                tanggal: isoDate,
+                rawTanggal: d.tanggal,
+                createdAt: d.createdAt,
+                jamMasuk: d.jamMasuk || "-",
+                jamKeluar: d.jamKeluar || "-",
+                status: status,
+                keterangan: keterangan
+              };
+            });
+            
+            setRiwayatAbsen(formattedAttendance);
           });
-          
-          setRiwayatAbsen(formattedAttendance);
-        });
         }
       } else {
         setCurrentUser(null);
@@ -103,20 +96,28 @@ export default function RiwayatPage() {
   }, []);
 
   const filteredRiwayat = riwayatAbsen.filter((item) => {
-    const [year, month] = item.tanggal.split("-");
-    return year === selectedYear && month === selectedMonth;
+    const comp = parseDateToComponents(item.tanggal || item.createdAt);
+    if (!comp) return false;
+    return comp.year === parseInt(selectedYear, 10) && comp.month === parseInt(selectedMonth, 10);
   });
   
   // Urutkan dari tanggal terbaru
-  filteredRiwayat.sort((a, b) => new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime());
+  filteredRiwayat.sort((a, b) => {
+    const tB = a.createdAt ? new Date(b.createdAt || 0).getTime() : new Date(b.tanggal).getTime();
+    const tA = a.createdAt ? new Date(a.createdAt || 0).getTime() : new Date(a.tanggal).getTime();
+    return tB - tA;
+  });
 
 
   const getStatusStyle = (item: any) => {
     if (item.status === "Hadir") {
-      if (item.keterangan?.toLowerCase().includes("terlambat") || (item.jamMasuk && item.jamMasuk > "08:15" && item.jamMasuk !== "-")) {
-        return "bg-[#fef08a]/10 text-[#fef08a] border border-[#fef08a]/20"; // Terlambat
-      }
       return "bg-[#d4af37]/10 text-[#d4af37] border border-[#d4af37]/20"; // Tepat Waktu
+    }
+    if (item.status === "Pulang Cepat") {
+      return "bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/20"; // Pulang Cepat (biru muda)
+    }
+    if (item.status === "Terlambat" || item.status === "Terlambat & Pulang Cepat" || item.keterangan?.toLowerCase().includes("terlambat")) {
+      return "bg-[#fef08a]/10 text-[#fef08a] border border-[#fef08a]/20"; // Terlambat
     }
     if (["Izin", "Sakit", "Cuti", "Disetujui", "Menunggu", "Revisi"].includes(item.status)) {
       return "bg-[#cbd5e1]/10 text-[#cbd5e1] border border-[#cbd5e1]/20"; // Izin/Sakit/Cuti
@@ -127,6 +128,9 @@ export default function RiwayatPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "Hadir": return "fa-check";
+      case "Pulang Cepat": return "fa-person-walking-arrow-right";
+      case "Terlambat & Pulang Cepat": return "fa-clock-rotate-left";
+      case "Terlambat": return "fa-clock";
       case "Sakit": return "fa-briefcase-medical";
       case "Izin": return "fa-envelope-open-text";
       case "Cuti": return "fa-plane-departure";
@@ -138,18 +142,21 @@ export default function RiwayatPage() {
   };
 
   const formatDate = (dateString: string) => {
-    const options: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'short' };
-    return new Date(dateString).toLocaleDateString('id-ID', options);
+    const comp = parseDateToComponents(dateString);
+    if (comp) {
+      const dt = new Date(comp.year, comp.month - 1, comp.day);
+      const options: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'short' };
+      return dt.toLocaleDateString('id-ID', options);
+    }
+    return dateString;
   };
 
   const stats = { TepatWaktu: 0, Terlambat: 0, IzinSakitCuti: 0, Absen: 0 };
   filteredRiwayat.forEach(item => {
-    if (item.status === "Hadir") {
-      if (item.keterangan?.toLowerCase().includes("terlambat") || (item.jamMasuk && item.jamMasuk > "08:15" && item.jamMasuk !== "-")) {
-        stats.Terlambat += 1;
-      } else {
-        stats.TepatWaktu += 1;
-      }
+    if (item.status === "Hadir" || item.status === "Pulang Cepat") {
+      stats.TepatWaktu += 1;
+    } else if (item.status === "Terlambat" || item.status === "Terlambat & Pulang Cepat" || item.keterangan?.toLowerCase().includes("terlambat")) {
+      stats.Terlambat += 1;
     } else if (["Izin", "Sakit", "Cuti", "Disetujui", "Menunggu", "Revisi"].includes(item.status)) {
       stats.IzinSakitCuti += 1;
     } else if (["Absen", "Ditolak"].includes(item.status)) {

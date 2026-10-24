@@ -3,9 +3,9 @@ import { adminDb } from '@/lib/firebase-admin';
 import { verifyCaller } from '@/lib/auth-server';
 
 const DEFAULT_SETTINGS = {
-  timezone: 'Asia/Tokyo',
-  timezoneCode: 'JST',
-  timezoneLabel: 'JST - Jepang (UTC+9)',
+  timezone: 'Asia/Jakarta',
+  timezoneCode: 'WIB',
+  timezoneLabel: 'WIB - Waktu Indonesia Barat (UTC+7)',
 };
 
 /**

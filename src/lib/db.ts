@@ -88,33 +88,119 @@ export const subscribeToEmployees = (callback: (data: any[]) => void) => {
   }, (err: any) => console.warn('Snapshot listener error:', err.message));
 };
 
-export const getTodayAttendance = async (karyawanId: string) => {
+// Helper normalisasi tanggal universal (kebal terhadap variasi format DD/MM/YYYY, YYYY-MM-DD, D-M-YYYY, ISO)
+export function parseDateToComponents(dateStr: string | undefined | null): { year: number; month: number; day: number; isoDate: string } | null {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  const str = dateStr.trim();
+  if (!str) return null;
+
+  const dateOnly = str.split('T')[0].trim();
+  let y = 0, m = 0, d = 0;
+
+  if (dateOnly.includes('/') || dateOnly.includes('-')) {
+    const delimiter = dateOnly.includes('/') ? '/' : '-';
+    const parts = dateOnly.split(delimiter).map(p => parseInt(p, 10)).filter(n => !isNaN(n));
+    if (parts.length === 3) {
+      if (parts[0] > 1900) {
+        // YYYY-MM-DD or YYYY/MM/DD
+        y = parts[0];
+        m = parts[1];
+        d = parts[2];
+      } else if (parts[2] > 1900) {
+        // DD/MM/YYYY or DD-MM-YYYY
+        d = parts[0];
+        m = parts[1];
+        y = parts[2];
+      }
+    }
+  }
+
+  if (!y || !m || !d || m < 1 || m > 12 || d < 1 || d > 31) {
+    const dt = new Date(str);
+    if (!isNaN(dt.getTime())) {
+      y = dt.getFullYear();
+      m = dt.getMonth() + 1;
+      d = dt.getDate();
+    } else {
+      return null;
+    }
+  }
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const isoDate = `${y}-${pad(m)}-${pad(d)}`;
+  return { year: y, month: m, day: d, isoDate };
+}
+
+export const getTodayAttendance = async (karyawanId: string, timezone: string = "Asia/Jakarta") => {
   if (!db || !karyawanId) return null;
   try {
-    const now = new Date();
-    const d = now.getDate();
-    const m = now.getMonth() + 1;
-    const y = now.getFullYear();
+    const { auth } = await import("@/lib/firebase");
+    const currentUid = auth?.currentUser?.uid;
+    const targetId = currentUid || karyawanId;
 
-    const possibleDates = Array.from(new Set([
-      `${d}/${m}/${y}`,
-      `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`,
-      `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
-      now.toLocaleDateString("id-ID")
-    ]));
-
-    const q = query(
+    let q = query(
       collection(db, COLL_ATTENDANCE), 
-      where("karyawanId", "==", karyawanId),
-      where("tanggal", "in", possibleDates)
+      where("karyawanId", "==", targetId)
     );
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const docs = snap.docs.map(doc => ({ id: doc.id, ...normalizeData(doc.data()) }));
-      docs.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-      return docs[0];
+    let snap = await getDocs(q);
+
+    // Fallback jika tidak ada dokumen dengan targetId dan targetId berbeda dari karyawanId
+    if (snap.empty && karyawanId && karyawanId !== targetId) {
+      try {
+        const altQ = query(
+          collection(db, COLL_ATTENDANCE), 
+          where("karyawanId", "==", karyawanId)
+        );
+        snap = await getDocs(altQ);
+      } catch {}
     }
-    return null;
+
+    if (snap.empty) return null;
+
+    const docs = snap.docs.map(doc => ({ id: doc.id, ...normalizeData(doc.data()) }));
+    // Urutkan dari data paling baru
+    docs.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+    }).formatToParts(now);
+
+    const d = parseInt(parts.find(p => p.type === 'day')!.value, 10);
+    const m = parseInt(parts.find(p => p.type === 'month')!.value, 10);
+    const y = parseInt(parts.find(p => p.type === 'year')!.value, 10);
+
+    const isSameDate = (dateStr?: string) => {
+      const comp = parseDateToComponents(dateStr);
+      if (!comp) return false;
+      return comp.year === y && comp.month === m && comp.day === d;
+    };
+
+    // 1. Prioritas 1: Sesi aktif HARI INI yang belum checkout
+    const todayActive = docs.find(docData => {
+      if (docData.jamKeluar && docData.jamKeluar !== "--:--") return false;
+      return isSameDate(docData.tanggal);
+    });
+    if (todayActive) return todayActive;
+
+    // 2. Prioritas 2: Sesi aktif Shift Malam lintas hari dari kemarin (dalam kurun waktu <= 16 jam, atau <= 26 jam untuk shift 24 jam)
+    const nowTime = Date.now();
+    const activeOvernight = docs.find(docData => {
+      if (docData.jamKeluar && docData.jamKeluar !== "--:--") return false;
+      const createdTime = new Date(docData.createdAt || 0).getTime();
+      const ageHours = (nowTime - createdTime) / (1000 * 60 * 60);
+      const isCrossDay = (docData.shiftKeluar && docData.shiftMasuk && docData.shiftKeluar <= docData.shiftMasuk) || (docData.jamMasuk && docData.jamMasuk >= "17:00");
+      const maxHours = (docData.shiftKeluar && docData.shiftMasuk && docData.shiftKeluar === docData.shiftMasuk) ? 26 : 16;
+      return isCrossDay && ageHours >= 0 && ageHours <= maxHours;
+    });
+    if (activeOvernight) return activeOvernight;
+
+    // 3. Prioritas 3: Sesi absensi yang sudah selesai hari ini
+    const todayCompleted = docs.find(docData => isSameDate(docData.tanggal));
+    return todayCompleted || null;
   } catch (err) {
     console.error("Gagal mengambil absensi hari ini:", err);
     return null;
@@ -478,19 +564,44 @@ export const subscribeToEmployeeRequests = (karyawanId: string, callback: (data:
   });
 };
 
-// Subscribe ke riwayat absensi khusus milik karyawan bersangkutan (Least Privilege Firestore Rules)
-export const subscribeToEmployeeAttendance = (karyawanId: string, callback: (data: any[]) => void) => {
+// Subscribe ke riwayat absensi khusus milik karyawan bersangkutan (mendukung single ID atau array [authUid, empId])
+export const subscribeToEmployeeAttendance = (karyawanId: string | string[], callback: (data: any[]) => void) => {
   if (!db || !karyawanId) return () => {};
-  const q = query(collection(db, COLL_ATTENDANCE), where("karyawanId", "==", karyawanId));
-  return onSnapshot(q, (snapshot) => {
-    const data = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...normalizeData(doc.data())
-    }));
-    callback(data);
-  }, (err: any) => {
-    console.warn("subscribeToEmployeeAttendance error:", err);
-  });
+  const ids = Array.isArray(karyawanId)
+    ? Array.from(new Set(karyawanId.filter(Boolean)))
+    : [karyawanId];
+
+  if (ids.length === 0) return () => {};
+
+  if (ids.length === 1) {
+    const q = query(collection(db, COLL_ATTENDANCE), where("karyawanId", "==", ids[0]));
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...normalizeData(doc.data())
+      }));
+      callback(data);
+    }, (err: any) => {
+      console.warn("subscribeToEmployeeAttendance error:", err);
+    });
+  } else {
+    const q = query(collection(db, COLL_ATTENDANCE), where("karyawanId", "in", ids.slice(0, 10)));
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...normalizeData(doc.data())
+      }));
+      callback(data);
+    }, (err: any) => {
+      console.warn("subscribeToEmployeeAttendance multi-id notice, fallback ke primary:", err);
+      if (db) {
+        const singleQ = query(collection(db, COLL_ATTENDANCE), where("karyawanId", "==", ids[0]));
+        return onSnapshot(singleQ, (s) => {
+          callback(s.docs.map(d => ({ id: d.id, ...normalizeData(d.data()) })));
+        });
+      }
+    });
+  }
 };
 
 export const subscribeToFinances = (callback: (data: any[]) => void) => {
@@ -623,14 +734,37 @@ export const markNotificationRead = async (id: string) => {
   }
 };
 
-export const getEmployeeAttendance = async (karyawanId: string) => {
-  if (!db) return [];
+export const getEmployeeAttendance = async (karyawanId: string | string[]) => {
+  if (!db || !karyawanId) return [];
   try {
-    const q = query(
-      collection(db, COLL_ATTENDANCE),
-      where("karyawanId", "==", karyawanId)
-    );
-    const snap = await getDocs(q);
+    const ids = Array.isArray(karyawanId)
+      ? Array.from(new Set(karyawanId.filter(Boolean)))
+      : [karyawanId];
+
+    if (ids.length === 0) return [];
+
+    let snap;
+    if (ids.length === 1) {
+      const q = query(
+        collection(db, COLL_ATTENDANCE),
+        where("karyawanId", "==", ids[0])
+      );
+      snap = await getDocs(q);
+    } else {
+      try {
+        const q = query(
+          collection(db, COLL_ATTENDANCE),
+          where("karyawanId", "in", ids.slice(0, 10))
+        );
+        snap = await getDocs(q);
+      } catch {
+        const fallbackQ = query(
+          collection(db, COLL_ATTENDANCE),
+          where("karyawanId", "==", ids[0])
+        );
+        snap = await getDocs(fallbackQ);
+      }
+    }
     return snap.docs.map(doc => ({ id: doc.id, ...normalizeData(doc.data()) }));
   } catch (err) {
     console.error("Gagal mengambil absensi karyawan:", err);
@@ -1077,13 +1211,15 @@ export const TIMEZONE_OPTIONS = [
 ];
 
 export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
-  timezone: "Asia/Tokyo",
-  timezoneCode: "JST",
-  timezoneLabel: "JST - Jepang (UTC+9)",
+  timezone: "Asia/Jakarta",
+  timezoneCode: "WIB",
+  timezoneLabel: "WIB - Waktu Indonesia Barat (UTC+7)",
   globalShifts: [
-    { name: 'Shift Pagi', masuk: '08:00', keluar: '20:00' },
-    { name: 'Shift Malam', masuk: '20:00', keluar: '08:00' },
-    { name: 'Shift Full', masuk: '08:00', keluar: '08:00' },
+    { name: 'Shift Pagi (8 Jam)', masuk: '08:00', keluar: '16:00' },
+    { name: 'Shift Pagi (12 Jam)', masuk: '08:00', keluar: '20:00' },
+    { name: 'Shift Malam (12 Jam)', masuk: '20:00', keluar: '08:00' },
+    { name: 'Piket / Setengah Hari', masuk: '08:00', keluar: '13:00' },
+    { name: 'Shift Full (24 Jam)', masuk: '08:00', keluar: '08:00' },
   ]
 };
 
