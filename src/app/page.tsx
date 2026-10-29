@@ -134,10 +134,21 @@ export default function EmployeeDashboard() {
              shiftKeluar: existingAtt.shiftKeluar || null,
           }));
        } else {
-          setTimeCheckin("--:--");
-          setTimeCheckout("--:--");
-          setHasCheckedIn(false);
-          localStorage.removeItem("pilar_today_attendance");
+          // Hanya reset jika di localStorage TIDAK ada sesi aktif yang belum checkout
+          const saved = typeof window !== 'undefined' ? localStorage.getItem("pilar_today_attendance") : null;
+          let hasLocalUnclosed = false;
+          if (saved) {
+            try {
+              const p = JSON.parse(saved);
+              hasLocalUnclosed = !p.timeCheckout || p.timeCheckout === "--:--";
+            } catch {}
+          }
+          if (!hasLocalUnclosed) {
+            setTimeCheckin("--:--");
+            setTimeCheckout("--:--");
+            setHasCheckedIn(false);
+            localStorage.removeItem("pilar_today_attendance");
+          }
        }
     };
 
@@ -217,8 +228,8 @@ export default function EmployeeDashboard() {
             const parsed = JSON.parse(savedAtt);
             const isUnclosed = !parsed.timeCheckout || parsed.timeCheckout === "--:--";
             const isToday = isDateToday(parsed.date);
-            // Sesi boleh dipertahankan hanya jika tanggalnya hari ini
-            if (isToday) {
+            // Sesi boleh dipertahankan jika tanggalnya hari ini ATAU masih ada sesi aktif belum selesai (misal piket pagi-malam lewat tengah malam)
+            if (isToday || isUnclosed) {
                if (parsed.timeCheckin && parsed.timeCheckin !== "--:--") {
                  setTimeCheckin(parsed.timeCheckin);
                  setHasCheckedIn(isUnclosed);
@@ -507,9 +518,10 @@ export default function EmployeeDashboard() {
               const attStatus = isLate ? "Terlambat" : "Hadir";
               
               const newAttData: any = {
-                karyawanId: currentUser?.id || auth.currentUser?.uid,
+                karyawanId: auth.currentUser?.uid || currentUser?.id,
                 karyawanNama: currentUser?.nama || "Karyawan",
                 tanggal: dateStr,
+                tanggalISO: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
                 jamMasuk: timeStr,
                 jamKeluar: null,
                 status: attStatus,
@@ -592,6 +604,8 @@ export default function EmployeeDashboard() {
               localStorage.setItem("pilar_today_attendance", JSON.stringify(data));
               setIsLoadingLocation(false);
               return;
+            } else if (res.status === 404 || res.status >= 500) {
+              console.warn("API checkout status " + res.status + ", beralih ke fallback Firestore...");
             } else if (resData?.error) {
               showToast(resData.error, "error");
               setIsLoadingLocation(false);
@@ -606,20 +620,37 @@ export default function EmployeeDashboard() {
             try {
               const now = new Date();
               const timeStr = now.toLocaleTimeString("id-ID", { timeZone: appTimezone, hour: '2-digit', minute: '2-digit', hour12: false }).replace('.', ':');
-              const savedShiftKeluar = savedAtt ? JSON.parse(savedAtt).shiftKeluar : null;
-              const batasKeluar = savedShiftKeluar || currentUser?.shiftKeluar || "17:00";
-
-              const { recordCheckOut } = await import("@/lib/db");
+              const { recordCheckOut, getTodayAttendance } = await import("@/lib/db");
+              
+              let activeAtt: any = null;
               if (!targetDocId) {
-                const activeAtt: any = await getTodayAttendance(auth.currentUser?.uid || currentUser?.id, appTimezone);
+                activeAtt = await getTodayAttendance(auth.currentUser?.uid || currentUser?.id || '', appTimezone);
                 if (activeAtt?.id) targetDocId = activeAtt.id;
               }
+
               if (targetDocId) {
-                const ok = await recordCheckOut(targetDocId, timeStr, { lat: latitude, lng: longitude });
+                const savedShiftKeluar = savedAtt ? JSON.parse(savedAtt).shiftKeluar : null;
+                const batasKeluar = activeAtt?.shiftKeluar || savedShiftKeluar || currentUser?.shiftKeluar || "17:00";
+                const isPulangAwal = timeStr < batasKeluar;
+                let finalStatus = activeAtt?.status || "Hadir";
+                if (isPulangAwal) {
+                  if (finalStatus === "Terlambat") finalStatus = "Terlambat & Pulang Cepat";
+                  else if (finalStatus === "Hadir") finalStatus = "Pulang Cepat";
+                }
+
+                const ok = await recordCheckOut(targetDocId, timeStr, { lat: latitude, lng: longitude }, {
+                  status: finalStatus,
+                  isPulangAwal
+                });
+
                 if (ok) {
                   setTimeCheckout(timeStr);
                   setHasCheckedIn(false);
-                  showToast(`Berhasil absen pulang pada pukul ${timeStr} ${appTimezoneCode}`, "success");
+                  showToast(isPulangAwal 
+                    ? `Berhasil absen pulang pada pukul ${timeStr} ${appTimezoneCode} (Pulang lebih awal)` 
+                    : `Berhasil absen pulang pada pukul ${timeStr} ${appTimezoneCode}`, 
+                    "success"
+                  );
                   let data: any = {
                     date: `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`,
                     timeCheckin: timeCheckin,
@@ -630,6 +661,8 @@ export default function EmployeeDashboard() {
                 } else {
                   showToast("Gagal memperbarui jam pulang ke database.", "error");
                 }
+              } else {
+                showToast("Sesi absensi masuk tidak ditemukan.", "error");
               }
             } catch (fallbackErr) {
               console.error("Fallback checkout error:", fallbackErr);

@@ -182,24 +182,22 @@ export const getTodayAttendance = async (karyawanId: string, timezone: string = 
     // 1. Prioritas 1: Sesi aktif HARI INI yang belum checkout
     const todayActive = docs.find(docData => {
       if (docData.jamKeluar && docData.jamKeluar !== "--:--") return false;
-      return isSameDate(docData.tanggal);
+      return isSameDate(docData.tanggalISO || docData.tanggal);
     });
     if (todayActive) return todayActive;
 
-    // 2. Prioritas 2: Sesi aktif Shift Malam lintas hari dari kemarin (dalam kurun waktu <= 16 jam, atau <= 26 jam untuk shift 24 jam)
+    // 2. Prioritas 2: Sesi aktif yang belum checkout dalam kurun waktu 30 jam terakhir (mencakup piket pagi-malam, piket jaga rumah Kajari, shift malam lintas hari, shift 24 jam)
     const nowTime = Date.now();
-    const activeOvernight = docs.find(docData => {
+    const activeUnclosed = docs.find(docData => {
       if (docData.jamKeluar && docData.jamKeluar !== "--:--") return false;
       const createdTime = new Date(docData.createdAt || 0).getTime();
       const ageHours = (nowTime - createdTime) / (1000 * 60 * 60);
-      const isCrossDay = (docData.shiftKeluar && docData.shiftMasuk && docData.shiftKeluar <= docData.shiftMasuk) || (docData.jamMasuk && docData.jamMasuk >= "17:00");
-      const maxHours = (docData.shiftKeluar && docData.shiftMasuk && docData.shiftKeluar === docData.shiftMasuk) ? 26 : 16;
-      return isCrossDay && ageHours >= 0 && ageHours <= maxHours;
+      return ageHours >= 0 && ageHours <= 30;
     });
-    if (activeOvernight) return activeOvernight;
+    if (activeUnclosed) return activeUnclosed;
 
     // 3. Prioritas 3: Sesi absensi yang sudah selesai hari ini
-    const todayCompleted = docs.find(docData => isSameDate(docData.tanggal));
+    const todayCompleted = docs.find(docData => isSameDate(docData.tanggalISO || docData.tanggal));
     return todayCompleted || null;
   } catch (err) {
     console.error("Gagal mengambil absensi hari ini:", err);
@@ -221,14 +219,16 @@ export const recordCheckIn = async (data: any) => {
   }
 };
 
-export const recordCheckOut = async (docId: string, timeCheckout: string, koordinatKeluar: any) => {
+export const recordCheckOut = async (docId: string, timeCheckout: string, koordinatKeluar: any, extraData: any = {}) => {
   if (!db) return false;
   try {
-    await updateDoc(doc(db, COLL_ATTENDANCE, docId), {
+    const payload: any = {
       jamKeluar: timeCheckout,
       koordinatKeluar: koordinatKeluar,
-      updatedAt: serverTimestamp()
-    });
+      updatedAt: serverTimestamp(),
+      ...extraData
+    };
+    await updateDoc(doc(db, COLL_ATTENDANCE, docId), payload);
     return true;
   } catch (err) {
     console.error("Gagal merekam absen pulang ke Firebase:", err);
@@ -500,9 +500,9 @@ const normalizeData = (docData: any) => {
     } else if (data.createdAt.seconds) {
       data.createdAt = new Date(data.createdAt.seconds * 1000).toISOString();
     }
-  } else {
-    data.createdAt = new Date().toISOString(); // fallback
   }
+  // Fix: Tidak memberikan fallback new Date() untuk createdAt.
+  // Fallback lama menyebabkan sorting & filtering berubah-ubah setiap kali data dibaca ulang.
   return data;
 };
 
@@ -565,6 +565,8 @@ export const subscribeToEmployeeRequests = (karyawanId: string, callback: (data:
 };
 
 // Subscribe ke riwayat absensi khusus milik karyawan bersangkutan (mendukung single ID atau array [authUid, empId])
+// Fix: Menggunakan listener terpisah per ID dan merge hasilnya, menghindari query `in` yang
+// diblokir oleh Firestore security rules (rules hanya mengizinkan karyawanId == request.auth.uid).
 export const subscribeToEmployeeAttendance = (karyawanId: string | string[], callback: (data: any[]) => void) => {
   if (!db || !karyawanId) return () => {};
   const ids = Array.isArray(karyawanId)
@@ -585,22 +587,42 @@ export const subscribeToEmployeeAttendance = (karyawanId: string | string[], cal
       console.warn("subscribeToEmployeeAttendance error:", err);
     });
   } else {
-    const q = query(collection(db, COLL_ATTENDANCE), where("karyawanId", "in", ids.slice(0, 10)));
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...normalizeData(doc.data())
-      }));
-      callback(data);
-    }, (err: any) => {
-      console.warn("subscribeToEmployeeAttendance multi-id notice, fallback ke primary:", err);
-      if (db) {
-        const singleQ = query(collection(db, COLL_ATTENDANCE), where("karyawanId", "==", ids[0]));
-        return onSnapshot(singleQ, (s) => {
-          callback(s.docs.map(d => ({ id: d.id, ...normalizeData(d.data()) })));
-        });
+    // Gunakan listener terpisah untuk setiap ID, lalu merge hasilnya.
+    // Setiap query hanya meminta data dengan karyawanId == id tertentu,
+    // sehingga memenuhi Firestore security rules yang mengharuskan
+    // resource.data.karyawanId == request.auth.uid.
+    const resultsMap = new Map<string, Map<string, any>>();
+    const unsubscribers: (() => void)[] = [];
+
+    const mergeAndCallback = () => {
+      const mergedMap = new Map<string, any>();
+      for (const idResults of resultsMap.values()) {
+        for (const [docId, docData] of idResults) {
+          mergedMap.set(docId, docData);
+        }
       }
-    });
+      callback(Array.from(mergedMap.values()));
+    };
+
+    for (const id of ids) {
+      resultsMap.set(id, new Map());
+      const q = query(collection(db, COLL_ATTENDANCE), where("karyawanId", "==", id));
+      const unsub = onSnapshot(q, (snapshot) => {
+        const idMap = new Map<string, any>();
+        snapshot.docs.forEach(doc => {
+          idMap.set(doc.id, { id: doc.id, ...normalizeData(doc.data()) });
+        });
+        resultsMap.set(id, idMap);
+        mergeAndCallback();
+      }, (err: any) => {
+        console.warn(`subscribeToEmployeeAttendance error for id ${id}:`, err);
+      });
+      unsubscribers.push(unsub);
+    }
+
+    return () => {
+      unsubscribers.forEach(unsub => unsub());
+    };
   }
 };
 

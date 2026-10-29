@@ -98,7 +98,7 @@ function getAppDateTime(timeZone: string = 'Asia/Jakarta') {
   else if (timeZone === "Asia/Makassar") code = "WITA";
   else if (timeZone === "Asia/Jakarta") code = "WIB";
 
-  return { now, tanggal: formatShort, possibleDates, timeString, timezone: timeZone, timezoneCode: code, day, month, year };
+  return { now, tanggal: formatShort, tanggalISO: formatIso, possibleDates, timeString, timezone: timeZone, timezoneCode: code, day, month, year };
 }
 
 // POST: Absen Masuk
@@ -174,7 +174,7 @@ export async function POST(req: Request) {
     }
 
     // 3. Waktu Server & Keterlambatan
-    const { tanggal, possibleDates, timeString, timezoneCode } = getAppDateTime(appTimezone);
+    const { tanggal, tanggalISO, possibleDates, timeString, timezoneCode } = getAppDateTime(appTimezone);
 
     // 4. Periksa sesi absensi karyawan
     const recentAttQuery = await adminDb.collection('attendance')
@@ -265,6 +265,7 @@ export async function POST(req: Request) {
       karyawanId: caller.uid,
       karyawanNama: empData.nama || caller.nama || 'Karyawan',
       tanggal,
+      tanggalISO,
       jamMasuk: timeString,
       jamKeluar: null,
       status: attendanceStatus,
@@ -319,7 +320,17 @@ export async function PUT(req: Request) {
       getCompanyTimezone().catch(() => 'Asia/Jakarta'),
     ]);
 
-    const empData = empDoc?.exists ? empDoc.data() : null;
+    let empData = empDoc?.exists ? empDoc.data() : null;
+    let employeeDocId = empDoc?.exists ? empDoc.id : null;
+
+    if (!empData && caller.email) {
+      const empQuery = await adminDb.collection('employees').where('email', '==', caller.email).limit(1).get().catch(() => null);
+      if (empQuery && !empQuery.empty) {
+        empData = empQuery.docs[0].data();
+        employeeDocId = empQuery.docs[0].id;
+      }
+    }
+
     const { tanggal, possibleDates, timeString, timezoneCode } = getAppDateTime(appTimezone);
 
     // Cari dokumen absensi yang ditargetkan untuk checkout
@@ -328,52 +339,63 @@ export async function PUT(req: Request) {
 
     if (targetDocId) {
       const snap = await adminDb.collection('attendance').doc(targetDocId).get();
-      if (snap.exists) attendanceData = snap.data();
+      if (snap.exists) {
+        const d = snap.data();
+        const isOwner = d?.karyawanId === caller.uid || (employeeDocId && d?.karyawanId === employeeDocId);
+        // Utamakan targetDocId jika masih belum checkout
+        if (isOwner && (!d?.jamKeluar || d?.jamKeluar === '--:--')) {
+          attendanceData = d;
+        }
+      }
     }
 
-    // Jika tidak ditemukan via docId atau docId tidak dikirim (misal setelah refresh / pergantian hari):
+    // Jika tidak ditemukan via docId atau dokumen tersebut sudah checkout:
     // Cari dokumen absensi aktif yang belum checkout (jamKeluar == null) dalam kurun waktu 30 jam
-    if (!targetDocId || !attendanceData) {
-      const recentSnap = await adminDb.collection('attendance')
-        .where('karyawanId', '==', caller.uid)
-        .limit(10)
-        .get()
-        .catch(() => null);
+    if (!attendanceData) {
+      const targetIds = Array.from(new Set([caller.uid, employeeDocId].filter(Boolean) as string[]));
 
-      if (recentSnap && !recentSnap.empty) {
-        const recentDocs = recentSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        recentDocs.sort((a: any, b: any) => {
+      let allDocs: any[] = [];
+      for (const id of targetIds) {
+        const snap = await adminDb.collection('attendance')
+          .where('karyawanId', '==', id)
+          .get()
+          .catch(() => null);
+        if (snap && !snap.empty) {
+          snap.docs.forEach(doc => {
+            allDocs.push({ id: doc.id, ...doc.data() });
+          });
+        }
+      }
+
+      if (allDocs.length > 0) {
+        allDocs.sort((a: any, b: any) => {
           const tA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt || 0).getTime();
           const tB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt || 0).getTime();
           return tB - tA;
         });
 
+        const nowTime = Date.now();
+
         // 1. Cari yang belum checkout hari ini
-        const unclosedToday = recentDocs.find((d: any) => 
-          (!d.jamKeluar || d.jamKeluar === '--:--') && (compareDates(tanggal, d.tanggal) === 0 || possibleDates.includes(d.tanggal))
+        const unclosedToday = allDocs.find((d: any) => 
+          (!d.jamKeluar || d.jamKeluar === '--:--') && (compareDates(tanggal, d.tanggalISO || d.tanggal) === 0 || possibleDates.includes(d.tanggal))
         );
 
-        // 2. Atau cari sesi unclosed Shift Malam lintas hari dari kemarin
-        const unclosedOvernight = recentDocs.find((d: any) => {
+        // 2. Atau cari sesi unclosed dalam kurun waktu 30 jam (mencakup piket pagi-malam di rumah Kajari, shift malam, shift 24 jam)
+        const unclosedRecent = allDocs.find((d: any) => {
           if (d.jamKeluar && d.jamKeluar !== '--:--') return false;
           const createdTime = d.createdAt?.toDate ? d.createdAt.toDate().getTime() : new Date(d.createdAt || 0).getTime();
-          const ageHours = (Date.now() - createdTime) / (1000 * 60 * 60);
-          const isCrossDay = (d.shiftKeluar && d.shiftMasuk && d.shiftKeluar <= d.shiftMasuk) || (d.jamMasuk && d.jamMasuk >= '17:00');
-          const maxHours = (d.shiftKeluar && d.shiftMasuk && d.shiftKeluar === d.shiftMasuk) ? 26 : 16;
-          return isCrossDay && ageHours >= 0 && ageHours <= maxHours;
+          const ageHours = (nowTime - createdTime) / (1000 * 60 * 60);
+          return ageHours >= 0 && ageHours <= 30;
         });
 
-        const unclosed = unclosedToday || unclosedOvernight;
-        if (unclosed) {
-          targetDocId = unclosed.id;
-          attendanceData = unclosed;
-        } else {
-          // 3. Cari yang tanggalnya hari ini
-          const todayDoc = recentDocs.find((d: any) => compareDates(tanggal, d.tanggal) === 0 || possibleDates.includes(d.tanggal));
-          if (todayDoc) {
-            targetDocId = todayDoc.id;
-            attendanceData = todayDoc;
-          }
+        // 3. Fallback: Dokumen hari ini
+        const todayDoc = allDocs.find((d: any) => compareDates(tanggal, d.tanggalISO || d.tanggal) === 0 || possibleDates.includes(d.tanggal));
+
+        const chosen = unclosedToday || unclosedRecent || todayDoc;
+        if (chosen) {
+          targetDocId = chosen.id;
+          attendanceData = chosen;
         }
       }
     }

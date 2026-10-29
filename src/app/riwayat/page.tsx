@@ -54,8 +54,9 @@ export default function RiwayatPage() {
           unsubscribeAttendance = subscribeToEmployeeAttendance(idsToSubscribe, (data) => {
             // Re-format tanggal to YYYY-MM-DD secara universal & reliable
             const formattedAttendance: RiwayatAbsen[] = data.map(d => {
-              const comp = parseDateToComponents(d.tanggal || d.createdAt);
-              const isoDate = comp ? comp.isoDate : (d.tanggal || "");
+              // Prioritaskan tanggalISO (format YYYY-MM-DD dari server) jika tersedia
+              const comp = parseDateToComponents(d.tanggalISO || d.tanggal || d.createdAt);
+              const isoDate = comp ? comp.isoDate : (d.tanggalISO || d.tanggal || "");
               
               // Determine if Terlambat (based on status or keterangan or jamMasuk)
               let keterangan = d.keterangan || "-";
@@ -101,10 +102,14 @@ export default function RiwayatPage() {
     return comp.year === parseInt(selectedYear, 10) && comp.month === parseInt(selectedMonth, 10);
   });
   
-  // Urutkan dari tanggal terbaru
+  // Urutkan dari tanggal terbaru — gunakan tanggal ISO sebagai anchor utama
   filteredRiwayat.sort((a, b) => {
-    const tB = a.createdAt ? new Date(b.createdAt || 0).getTime() : new Date(b.tanggal).getTime();
-    const tA = a.createdAt ? new Date(a.createdAt || 0).getTime() : new Date(a.tanggal).getTime();
+    const dateA = new Date(a.tanggal || 0).getTime();
+    const dateB = new Date(b.tanggal || 0).getTime();
+    if (dateA !== dateB) return dateB - dateA;
+    // Jika tanggal sama (misal shift ganda), gunakan createdAt sebagai tiebreaker
+    const tA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const tB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
     return tB - tA;
   });
 
