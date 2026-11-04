@@ -428,20 +428,51 @@ export default function EmployeeDashboard() {
 
             if (res.ok && resData?.success) {
               checkinSuccess = true;
-              setTimeCheckin(resData.timeCheckin);
-              setTimeCheckout("--:--");
-              setHasCheckedIn(true);
-              showToast(resData.message || "Berhasil Absen Masuk!", "success");
 
-              localStorage.setItem("pilar_today_attendance", JSON.stringify({
-                date: resData.tanggal,
-                timeCheckin: resData.timeCheckin,
-                timeCheckout: null,
-                docId: resData.docId,
-                shiftName: shiftOverrides?.name || null,
-                shiftMasuk: shiftOverrides?.masuk || null,
-                shiftKeluar: shiftOverrides?.keluar || null,
-              }));
+              if (resData.alreadyCheckedIn) {
+                // Server mengembalikan data sesi yang sudah ada (bukan check-in baru)
+                setTimeCheckin(resData.timeCheckin);
+
+                // Periksa apakah sesi masih aktif (belum pulang) atau sudah selesai
+                const hasActiveSession = !resData.timeCheckout || resData.timeCheckout === "--:--";
+                setHasCheckedIn(hasActiveSession);
+
+                if (!hasActiveSession) {
+                  // Sesi sudah selesai (sudah pulang) — tidak bisa absen masuk lagi hari ini
+                  setTimeCheckout(resData.timeCheckout || "--:--");
+                } else {
+                  setTimeCheckout("--:--");
+                }
+
+                showToast(resData.message || "Anda sudah memiliki sesi absensi hari ini.", "error");
+
+                localStorage.setItem("pilar_today_attendance", JSON.stringify({
+                  date: resData.tanggal,
+                  timeCheckin: resData.timeCheckin,
+                  timeCheckout: hasActiveSession ? null : (resData.timeCheckout || null),
+                  docId: resData.docId,
+                  shiftName: shiftOverrides?.name || null,
+                  shiftMasuk: shiftOverrides?.masuk || null,
+                  shiftKeluar: shiftOverrides?.keluar || null,
+                }));
+              } else {
+                // Check-in baru berhasil
+                setTimeCheckin(resData.timeCheckin);
+                setTimeCheckout("--:--");
+                setHasCheckedIn(true);
+                showToast(resData.message || "Berhasil Absen Masuk!", "success");
+
+                localStorage.setItem("pilar_today_attendance", JSON.stringify({
+                  date: resData.tanggal,
+                  timeCheckin: resData.timeCheckin,
+                  timeCheckout: null,
+                  docId: resData.docId,
+                  shiftName: shiftOverrides?.name || null,
+                  shiftMasuk: shiftOverrides?.masuk || null,
+                  shiftKeluar: shiftOverrides?.keluar || null,
+                }));
+              }
+
               setIsLoadingLocation(false);
               return;
             } else if (resData?.error) {

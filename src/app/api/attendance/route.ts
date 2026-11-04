@@ -206,6 +206,7 @@ export async function POST(req: Request) {
         docId: todayUnclosed.id,
         tanggal: todayUnclosed.tanggal,
         timeCheckin: todayUnclosed.jamMasuk,
+        timeCheckout: todayUnclosed.jamKeluar || null,
         status: todayUnclosed.status,
         message: 'Anda masih memiliki sesi absensi aktif hari ini yang belum absen pulang.'
       });
@@ -230,6 +231,7 @@ export async function POST(req: Request) {
         docId: overnightActive.id,
         tanggal: overnightActive.tanggal,
         timeCheckin: overnightActive.jamMasuk,
+        timeCheckout: overnightActive.jamKeluar || null,
         status: overnightActive.status,
         message: 'Anda masih berada dalam sesi dinas Shift Malam yang belum absen pulang.'
       });
@@ -251,6 +253,7 @@ export async function POST(req: Request) {
           docId: existingToday.id,
           tanggal: existingToday.tanggal,
           timeCheckin: existingToday.jamMasuk,
+          timeCheckout: existingToday.jamKeluar || null,
           status: existingToday.status,
           message: 'Anda sudah melakukan absensi hari ini.'
         });
